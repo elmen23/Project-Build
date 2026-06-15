@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Induction Heater Controller"
+version = "1.0.0"
+id = "artifacts/induction-controller"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23545
+
+[services.development]
+run = "pnpm --filter @workspace/induction-controller run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/induction-controller", "run", "build" ]
+publicDir = "artifacts/induction-controller/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23545"
+BASE_PATH = "/"
