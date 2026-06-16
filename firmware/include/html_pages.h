@@ -234,9 +234,9 @@ static const char SETUP_HTML[] PROGMEM = R"rawliteral(
 
 <script>
 // ── State ──
-let selectedSSID = '', selectedOpen = false;
+let selectedSSID = '', selectedOpen = false, selectedChannel = 1;
 let pollTimer = null, countTimer = null;
-const TIMEOUT_SEC = 15;
+const TIMEOUT_SEC = 30;
 
 function setStep(n) {
   [1,2,3].forEach(i => {
@@ -284,7 +284,7 @@ function renderNetworks(nets) {
     return;
   }
   list.innerHTML = nets.map(n => `
-    <div class="net-item" onclick="selectNet('${escHtml(n.ssid)}', ${n.open})" data-ssid="${escHtml(n.ssid)}">
+    <div class="net-item" onclick="selectNet('${escHtml(n.ssid)}', ${n.open}, ${n.ch})" data-ssid="${escHtml(n.ssid)}">
       <div class="net-icon">${n.open ? '📶' : '📡'}</div>
       <div class="net-info">
         <div class="net-ssid">${escHtml(n.ssid)}</div>
@@ -296,8 +296,8 @@ function renderNetworks(nets) {
 }
 
 // ── Selection ──
-function selectNet(ssid, isOpen) {
-  selectedSSID = ssid; selectedOpen = isOpen;
+function selectNet(ssid, isOpen, channel) {
+  selectedSSID = ssid; selectedOpen = isOpen; selectedChannel = channel || 1;
   document.querySelectorAll('.net-item').forEach(el =>
     el.classList.toggle('selected', el.dataset.ssid === ssid)
   );
@@ -326,7 +326,7 @@ async function doConnect() {
   showPhase('connecting');
   startCountdown(TIMEOUT_SEC);
   try {
-    const body = new URLSearchParams({ ssid: selectedSSID, pass });
+    const body = new URLSearchParams({ ssid: selectedSSID, pass, ch: selectedChannel });
     const r = await fetch('/connect', { method: 'POST', body });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     startPoll();

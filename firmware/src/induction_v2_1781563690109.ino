@@ -315,15 +315,16 @@ static void setupRoutes() {
         return urlDecode(val);
       };
 
-      String ssid = getParam("ssid");
-      String pass = getParam("pass");
+      String ssid    = getParam("ssid");
+      String pass    = getParam("pass");
+      int    channel = getParam("ch").toInt();
 
       if (ssid.length() > 0 && ssid.length() <= 32) {
         wifiMgr.saveCredentials(ssid, pass);
-        wifiMgr.retryCount  = 0;
+        wifiMgr.retryCount   = 0;
         wifiMgr.wasConnected = false;
-        wifiMgr.startSTA(ssid, pass);
-        Serial.printf("[Web] Connect request: SSID='%s'\n", ssid.c_str());
+        wifiMgr.startAPSTA(ssid, pass, channel);
+        Serial.printf("[Web] Connect request: SSID='%s', ch=%d\n", ssid.c_str(), channel);
       } else {
         Serial.println("[Web] Invalid SSID in connect request");
       }
@@ -483,13 +484,10 @@ void setup() {
 
   setupPWM();
 
-  WiFi.setAutoReconnect(false);
-  WiFi.persistent(false);
-
   if (wifiMgr.loadCredentials()) {
     wifiMgr.retryCount   = 0;
     wifiMgr.wasConnected = false;
-    wifiMgr.startSTA(wifiMgr.savedSSID, wifiMgr.savedPass);
+    wifiMgr.startAPSTA(wifiMgr.savedSSID, wifiMgr.savedPass);
   } else {
     wifiMgr.startAP();
     triggerScan();

@@ -19,7 +19,7 @@
 #define WIFI_AP_IP       "192.168.4.1"
 
 // ── Timing & Retry Policy ───────────────────────────────────────
-#define WIFI_CONNECT_TIMEOUT_MS    15000   // 15s per attempt
+#define WIFI_CONNECT_TIMEOUT_MS    30000   // 30s per attempt
 #define WIFI_MAX_RETRIES           3       // initial provisioning retries
 #define WIFI_FAIL_COOLDOWN_MS      120000  // 2 min before auto-retry
 #define WIFI_RECONNECT_INTERVAL_MS 30000   // 30s between reconnect attempts
@@ -127,32 +127,28 @@ public:
     state = WIFI_STATE_AP_ONLY;
   }
 
-  void startSTA(const String& ssid, const String& pass) {
+  void startAPSTA(const String& ssid, const String& pass, int channel = 1) {
     connectingSSID = ssid;
-    WiFi.disconnect(false, false);
-    delay(50);
-    WiFi.mode(WIFI_STA);
-    delay(50);
-    WiFi.begin(ssid.c_str(), pass.c_str());
-    connectStartMs = millis();
-    retryCount++;
     state = WIFI_STATE_CONNECTING;
-    Serial.printf("[WiFiMgr] STA connect to '%s' (attempt %d/%d)...\n",
-                  ssid.c_str(), retryCount, WIFI_MAX_RETRIES);
-  }
 
-  void startAPAfterSTA() {
     WiFi.mode(WIFI_AP_STA);
-    delay(50);
+    delay(100);
     WiFi.softAPConfig(
       IPAddress(192,168,4,1),
       IPAddress(192,168,4,1),
       IPAddress(255,255,255,0)
     );
-    WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS, 0, 0, 4);
+
+    int apChannel = (channel >= 1 && channel <= 13) ? channel : 1;
+    WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS, apChannel, 0, 4);
     delay(200);
-    Serial.printf("[WiFiMgr] AP started on STA channel @ %s\n",
-                  WiFi.softAPIP().toString().c_str());
+
+    WiFi.begin(ssid.c_str(), pass.c_str());
+    connectStartMs = millis();
+    retryCount++;
+
+    Serial.printf("[WiFiMgr] AP+STA: AP on ch %d, connecting to '%s' (attempt %d/%d)...\n",
+                  apChannel, ssid.c_str(), retryCount, WIFI_MAX_RETRIES);
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -214,8 +210,6 @@ public:
 
           Serial.printf("[WiFiMgr] ✓ Connected! IP=%s, RSSI=%d dBm\n",
                         staIP.c_str(), WiFi.RSSI());
-
-          startAPAfterSTA();
           return true;
         }
 
@@ -229,13 +223,13 @@ public:
             // Retry indefinitely with backoff.
             if (millis() - lastReconnectMs >= WIFI_RECONNECT_INTERVAL_MS) {
               lastReconnectMs = millis();
-              startSTA(savedSSID, savedPass);
+              startAPSTA(savedSSID, savedPass);
             }
           }
           else if (retryCount < WIFI_MAX_RETRIES) {
             // Initial provisioning: retry STA
             delay(500);
-            startSTA(savedSSID, savedPass);
+            startAPSTA(savedSSID, savedPass);
           }
           else {
             // Max retries exhausted → pure AP fallback with cooldown timer
@@ -269,7 +263,7 @@ public:
             (millis() - failedAtMs >= WIFI_FAIL_COOLDOWN_MS)) {
           Serial.println("[WiFiMgr] Cooldown expired, retrying...");
           failedAtMs = 0;
-          startSTA(savedSSID, savedPass);
+          startAPSTA(savedSSID, savedPass);
           return true;
         }
         break;
