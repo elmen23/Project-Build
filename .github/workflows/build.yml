@@ -19,8 +19,8 @@ jobs:
       with:
         node-version: 24
 
-    - name: Install pnpm via Corepack
-      run: corepack enable && corepack prepare pnpm@latest --activate
+    - name: Install pnpm v9
+      run: npm install -g pnpm@9
 
     - name: Install dependencies
       run: pnpm install
