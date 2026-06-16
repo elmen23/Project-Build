@@ -322,7 +322,7 @@ static void setupRoutes() {
         wifiMgr.saveCredentials(ssid, pass);
         wifiMgr.retryCount  = 0;
         wifiMgr.wasConnected = false;
-        wifiMgr.startAPSTA(ssid, pass);
+        wifiMgr.startSTA(ssid, pass);
         Serial.printf("[Web] Connect request: SSID='%s'\n", ssid.c_str());
       } else {
         Serial.println("[Web] Invalid SSID in connect request");
@@ -489,7 +489,7 @@ void setup() {
   if (wifiMgr.loadCredentials()) {
     wifiMgr.retryCount   = 0;
     wifiMgr.wasConnected = false;
-    wifiMgr.startAPSTA(wifiMgr.savedSSID, wifiMgr.savedPass);
+    wifiMgr.startSTA(wifiMgr.savedSSID, wifiMgr.savedPass);
   } else {
     wifiMgr.startAP();
     triggerScan();

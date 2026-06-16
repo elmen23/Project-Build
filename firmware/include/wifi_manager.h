@@ -127,12 +127,12 @@ public:
     state = WIFI_STATE_AP_ONLY;
   }
 
-  void startConnect(const String& ssid, const String& pass) {
+  void startSTA(const String& ssid, const String& pass) {
     connectingSSID = ssid;
-    WiFi.disconnect(true);
-    delay(100);
+    WiFi.disconnect(false, false);
+    delay(50);
     WiFi.mode(WIFI_STA);
-    delay(100);
+    delay(50);
     WiFi.begin(ssid.c_str(), pass.c_str());
     connectStartMs = millis();
     retryCount++;
@@ -141,24 +141,18 @@ public:
                   ssid.c_str(), retryCount, WIFI_MAX_RETRIES);
   }
 
-  void startAPSTA(const String& ssid, const String& pass) {
-    connectingSSID = ssid;
-    WiFi.disconnect(true);
-    delay(100);
+  void startAPAfterSTA() {
     WiFi.mode(WIFI_AP_STA);
-    delay(100);
+    delay(50);
     WiFi.softAPConfig(
       IPAddress(192,168,4,1),
       IPAddress(192,168,4,1),
       IPAddress(255,255,255,0)
     );
-    WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS, 6, 0, 4);
+    WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS, 0, 0, 4);
     delay(200);
-    WiFi.begin(ssid.c_str(), pass.c_str());
-    connectStartMs = millis();
-    retryCount++;
-    state = WIFI_STATE_CONNECTING;
-    Serial.printf("[WiFiMgr] AP+STA mode, connecting to '%s'...\n", ssid.c_str());
+    Serial.printf("[WiFiMgr] AP started on STA channel @ %s\n",
+                  WiFi.softAPIP().toString().c_str());
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -218,16 +212,16 @@ public:
           wasConnected = true;
           failedAtMs   = 0;
 
-          // Keep AP active for 10s then switch to pure STA for stability
-          // (user can still access via AP IP during transition)
           Serial.printf("[WiFiMgr] ✓ Connected! IP=%s, RSSI=%d dBm\n",
                         staIP.c_str(), WiFi.RSSI());
+
+          startAPAfterSTA();
           return true;
         }
 
         // Timeout check
         if (millis() - connectStartMs >= WIFI_CONNECT_TIMEOUT_MS) {
-          WiFi.disconnect(true);
+          WiFi.disconnect(false, false);
           Serial.printf("[WiFiMgr] ✗ Timeout after %d ms\n", WIFI_CONNECT_TIMEOUT_MS);
 
           if (wasConnected) {
@@ -235,13 +229,13 @@ public:
             // Retry indefinitely with backoff.
             if (millis() - lastReconnectMs >= WIFI_RECONNECT_INTERVAL_MS) {
               lastReconnectMs = millis();
-              startAPSTA(savedSSID, savedPass);
+              startSTA(savedSSID, savedPass);
             }
           }
           else if (retryCount < WIFI_MAX_RETRIES) {
-            // Initial provisioning: retry with AP+STA
+            // Initial provisioning: retry STA
             delay(500);
-            startAPSTA(savedSSID, savedPass);
+            startSTA(savedSSID, savedPass);
           }
           else {
             // Max retries exhausted → pure AP fallback with cooldown timer
@@ -262,7 +256,7 @@ public:
           retryCount   = 0;
           wasConnected = true;
           lastReconnectMs = millis();
-          startAPSTA(savedSSID, savedPass);
+          startSTA(savedSSID, savedPass);
           return true;
         }
         break;
@@ -275,7 +269,7 @@ public:
             (millis() - failedAtMs >= WIFI_FAIL_COOLDOWN_MS)) {
           Serial.println("[WiFiMgr] Cooldown expired, retrying...");
           failedAtMs = 0;
-          startAPSTA(savedSSID, savedPass);
+          startSTA(savedSSID, savedPass);
           return true;
         }
         break;
