@@ -16,6 +16,7 @@
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
 #include <Preferences.h>
+#include <ArduinoOTA.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -498,11 +499,29 @@ void setup() {
   setupRoutes();
   server.begin();
 
+  ArduinoOTA.setHostname("induction");
+  ArduinoOTA
+    .onStart([]() {
+      Serial.println("[OTA] Start");
+    })
+    .onEnd([]() {
+      Serial.println("\n[OTA] End");
+    })
+    .onProgress([](unsigned int p, unsigned int t) {
+      Serial.printf("[OTA] %u%%\r", p / (t / 100));
+    })
+    .onError([](ota_error_t e) {
+      Serial.printf("[OTA] Error %u\n", e);
+    });
+  ArduinoOTA.begin();
+  Serial.println("[OTA] Ready");
+
   Serial.printf("[Web] AP active: http://%s\n", WIFI_AP_IP);
 }
 
 void loop() {
   wifiMgr.tick();
+  ArduinoOTA.handle();
 
   static WiFiState lastState = WIFI_STATE_INIT;
   if (wifiMgr.state != lastState) {
