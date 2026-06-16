@@ -418,6 +418,9 @@ void WiFiProvisioning::_serveSuccessPage() {
         "<p class=ip>IP: ");
     html += WiFi.localIP().toString();
     html += F("</p>"
+        "<p><a href='http://");
+    html += WiFi.localIP().toString();
+    html += F("/' target=_blank>Dashboard</a> (after restart)</p>"
         "<p class=st>Device will restart in 5 seconds...</p>");
     html += FPSTR(P_BOTTOM);
     _server->send(200, "text/html", html);
