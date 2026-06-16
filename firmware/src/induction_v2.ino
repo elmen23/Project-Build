@@ -752,9 +752,6 @@ void setup() {
   // (Config already loaded via cfgMgr.begin() + applyConfig() above)
   setupPWM();
 
-  // Start captive portal DNS (redirects all domains to AP IP — Tasmota pattern)
-  dnsServer.start(53, "*", WiFi.softAPIP());
-
   if (wifiMgr.loadCredentials()) {
     wifiMgr.retryCount   = 0;
     wifiMgr.wasConnected = false;
@@ -762,6 +759,14 @@ void setup() {
   } else {
     wifiMgr.startAP();
     triggerScan();
+  }
+
+  // Start captive portal DNS AFTER WiFi AP is confirmed running
+  // (WiFi.softAPIP() is now valid: 192.168.4.1)
+  if (dnsServer.start(53, "*", WiFi.softAPIP())) {
+    Serial.printf("[DNS] Captive portal active @ %s:53\n", WiFi.softAPIP().toString().c_str());
+  } else {
+    Serial.println("[DNS] Failed to start captive portal");
   }
 
   setupRoutes();
