@@ -724,7 +724,7 @@ function valid(k) {
   err.style.display = bad ? 'block' : 'none';
   return !bad;
 }
-function validAll() { return ['f','dt','ss'].every(k => valid(k)); }
+function validAll() { return ['f','d','dt','ss'].every(k => valid(k)); }
 
 let tTimer;
 function toast(msg, type='ok') {
@@ -836,6 +836,12 @@ async function fetchStatus() {
     document.getElementById('d-d').textContent  = parseFloat(d.duty).toFixed(1);
     document.getElementById('d-dt').textContent = parseFloat(d.deadTime).toFixed(0);
     document.getElementById('d-ss').textContent = parseFloat(d.softStartMs).toFixed(0);
+
+    // ALSO sync input values so they stay up-to-date
+    document.getElementById('i-f').value  = Number(d.frequency);
+    document.getElementById('i-d').value  = parseFloat(d.duty).toFixed(1);
+    document.getElementById('i-dt').value = parseFloat(d.deadTime).toFixed(0);
+    document.getElementById('i-ss').value = parseFloat(d.softStartMs).toFixed(0);
   } catch(e) {
     document.getElementById('netInfo').textContent = '🔴 انقطع الاتصال';
     document.getElementById('status-dot').className = 'dot red';

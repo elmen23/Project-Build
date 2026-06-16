@@ -113,16 +113,16 @@ public:
 
   void startAP() {
     WiFi.disconnect(true);
-    delay(100);
+    delay(200);
     WiFi.mode(WIFI_AP);
-    delay(100);
+    delay(200);
     WiFi.softAPConfig(
       IPAddress(192,168,4,1),
       IPAddress(192,168,4,1),
       IPAddress(255,255,255,0)
     );
     WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS, 6, 0, 4);  // channel 6, max 4 clients
-    delay(200);
+    delay(300);
     Serial.printf("[WiFiMgr] AP mode: '%s' @ %s (ch 6)\n",
                   WIFI_AP_SSID, WiFi.softAPIP().toString().c_str());
     state = WIFI_STATE_AP_ONLY;
@@ -133,28 +133,30 @@ public:
     state = WIFI_STATE_CONNECTING;
 
     // Clean start: disconnect + turn off radio to clear stale state
-    WiFi.disconnect(true);
-    delay(100);
+    WiFi.disconnect(true, true);   // true, true = disconnect + erase STA config
+    delay(300);
 
     WiFi.mode(WIFI_AP_STA);
-    delay(100);
+    delay(200);
 
-    // Start AP on matched channel
+    // Start AP on channel 6 (stable default) — ESP32 STA will auto-switch to router's channel
     WiFi.softAPConfig(
       IPAddress(192,168,4,1),
       IPAddress(192,168,4,1),
       IPAddress(255,255,255,0)
     );
-    int apChannel = (channel >= 1 && channel <= 13) ? channel : 1;
-    WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS, apChannel, 0, 4);
-    delay(200);
+    WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS, 6, 0, 4);  // Always use channel 6 for AP
+    delay(300);
+
+    // Enable auto-reconnect for resilience
+    WiFi.setAutoReconnect(true);
 
     WiFi.begin(ssid.c_str(), pass.c_str());
     connectStartMs = millis();
     retryCount++;
 
-    Serial.printf("[WiFiMgr] AP+STA: AP on ch %d, connecting to '%s' (attempt %d/%d)...\n",
-                  apChannel, ssid.c_str(), retryCount, WIFI_MAX_RETRIES);
+    Serial.printf("[WiFiMgr] AP+STA: connecting to '%s' (attempt %d/%d)...\n",
+                  ssid.c_str(), retryCount, WIFI_MAX_RETRIES);
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -222,7 +224,7 @@ public:
         // Timeout check
         if (millis() - connectStartMs >= WIFI_CONNECT_TIMEOUT_MS) {
           Serial.printf("[WiFiMgr] ✗ Timeout after %d ms (status=%d)\n",
-                        WIFI_CONNECT_TIMEOUT_MS, WiFi.status());
+                        WIFI_CONNECT_TIMEOUT_MS, (int)WiFi.status());
 
           if (wasConnected) {
             // We were connected before — this is a transient disconnect.
@@ -232,7 +234,7 @@ public:
 
               // Try reconnect() first — retries DHCP without full restart
               WiFi.reconnect();
-              delay(1000);
+              delay(2000);
               if (WiFi.status() == WL_CONNECTED) {
                 staIP  = WiFi.localIP().toString();
                 state  = WIFI_STATE_CONNECTED;
@@ -240,12 +242,17 @@ public:
                 Serial.println("[WiFiMgr] ✓ Reconnect succeeded!");
                 return true;
               }
+              // Full restart if reconnect() failed
+              WiFi.disconnect(true, true);
+              delay(300);
               startAPSTA(savedSSID, savedPass);
             }
           }
           else if (retryCount < WIFI_MAX_RETRIES) {
-            // Initial provisioning: retry STA
-            delay(500);
+            // Initial provisioning: retry STA with full reset
+            Serial.printf("[WiFiMgr] Retrying (%d/%d)...\n", retryCount, WIFI_MAX_RETRIES);
+            WiFi.disconnect(true, true);
+            delay(300);
             startAPSTA(savedSSID, savedPass);
           }
           else {
@@ -269,6 +276,10 @@ public:
           lastReconnectMs = millis();
           startAPSTA(savedSSID, savedPass);
           return true;
+        }
+        // Keep IP updated
+        if (staIP.isEmpty() && WiFi.status() == WL_CONNECTED) {
+          staIP = WiFi.localIP().toString();
         }
         break;
       }

@@ -52,6 +52,10 @@ static volatile bool  g_running    = false;
 static volatile bool  g_softStart  = false;
 static volatile bool  g_started    = false;
 
+// ── Parameter Persistence ───────────────────────────────────────
+static Preferences    g_prefs;
+#define PARAMS_NS    "induction"
+
 // ── Subsystem Instances ─────────────────────────────────────────
 static WiFiManager       wifiMgr;
 static AsyncWebServer    server(80);
@@ -61,6 +65,40 @@ static volatile bool     g_scanDone   = false;
 static volatile bool     g_scanning   = false;
 static String            g_scanResult = "[]";
 static SemaphoreHandle_t g_scanMutex  = NULL;
+
+// ═════════════════════════════════════════════════════════════════
+//  Parameter Persistence (NVS)
+// ═════════════════════════════════════════════════════════════════
+
+static void loadParameters() {
+  g_prefs.begin(PARAMS_NS, true);  // read-only
+  g_freq = g_prefs.getFloat("freq",   100000.0f);
+  g_duty = g_prefs.getFloat("duty",   50.0f);
+  g_dt   = g_prefs.getFloat("dt",     500.0f);
+  g_ss   = g_prefs.getFloat("ss",     3000.0f);
+  g_prefs.end();
+
+  // Clamp to valid ranges
+  if (g_freq < FREQ_MIN || g_freq > FREQ_MAX || isnan(g_freq) || isinf(g_freq)) g_freq = 100000.0f;
+  if (g_duty < DUTY_MIN || g_duty > DUTY_MAX || isnan(g_duty) || isinf(g_duty)) g_duty = 50.0f;
+  if (g_dt   < DT_MIN   || g_dt   > DT_MAX   || isnan(g_dt)   || isinf(g_dt))   g_dt   = 500.0f;
+  if (g_ss   < SS_MIN   || g_ss   > SS_MAX   || isnan(g_ss)   || isinf(g_ss))   g_ss   = 3000.0f;
+
+  Serial.printf("[Params] Loaded: freq=%.0f Hz, duty=%.1f%%, dt=%.0f ns, ss=%.0f ms\n",
+                g_freq, g_duty, g_dt, g_ss);
+}
+
+static void saveParameters() {
+  g_prefs.begin(PARAMS_NS, false);  // read-write
+  g_prefs.putFloat("freq", g_freq);
+  g_prefs.putFloat("duty", g_duty);
+  g_prefs.putFloat("dt",   g_dt);
+  g_prefs.putFloat("ss",   g_ss);
+  g_prefs.end();
+
+  Serial.printf("[Params] Saved: freq=%.0f Hz, duty=%.1f%%, dt=%.0f ns, ss=%.0f ms\n",
+                g_freq, g_duty, g_dt, g_ss);
+}
 
 // ═════════════════════════════════════════════════════════════════
 //  Helper: nanoseconds → MCPWM dead-time ticks
@@ -437,6 +475,9 @@ static void setupRoutes() {
       }
     }
 
+    // Persist all parameter changes
+    saveParameters();
+
     req->send(200, "text/plain", "OK");
   });
 
@@ -511,6 +552,9 @@ void setup() {
   if (!g_scanMutex) {
     Serial.println("[FATAL] Failed to create scan mutex");
   }
+
+  // Load saved parameters BEFORE setting up PWM
+  loadParameters();
 
   setupPWM();
 
