@@ -674,14 +674,14 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 
   <div class="field">
     <div class="fh"><label>التردد</label><span class="badge"><span id="d-f">100000</span><span class="u">Hz</span></span></div>
-    <input id="i-f" type="number" value="100000" min="1000" max="400000" step="1000"
-           oninput="sync('f')" onchange="valid('f')">
-    <div class="errmsg" id="e-f">يجب أن يكون بين 1,000 و 400,000 Hz</div>
+    <input id="i-f" type="range" min="1000" max="400000" step="1000" value="100000" oninput="sync('f')">
   </div>
 
   <div class="field">
     <div class="fh"><label>نسبة الإشغال (Duty)</label><span class="badge"><span id="d-d">50</span><span class="u">%</span></span></div>
-    <input id="i-d" type="range" min="0" max="95" step="0.5" value="50" oninput="sync('d')">
+    <input id="i-d" type="number" value="50" min="0" max="95" step="0.5"
+           oninput="sync('d')" onchange="valid('d')">
+    <div class="errmsg" id="e-d">يجب أن يكون بين 0 و 95%</div>
   </div>
 
   <div class="field">
@@ -711,7 +711,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <div class="toast" id="toast"></div>
 
 <script>
-const LIMITS = { f:[1000,400000], dt:[0,5000], ss:[500,10000] };
+const LIMITS = { f:[1000,400000], d:[0,95], dt:[0,5000], ss:[500,10000] };
 
 function sync(k)  { document.getElementById('d-'+k).textContent = document.getElementById('i-'+k).value; }
 function valid(k) {
@@ -831,12 +831,11 @@ async function fetchStatus() {
     document.getElementById('netInfo').textContent =
       `📶 ${d.ssid || '—'} · ${d.ip || '—'} · ${d.rssi || 0} dBm`;
 
-    // Sync inputs
-    document.getElementById('i-f').value  = d.frequency;
-    document.getElementById('i-d').value  = d.duty;
-    document.getElementById('i-dt').value = d.deadTime;
-    document.getElementById('i-ss').value = d.softStartMs;
-    ['f','d','dt','ss'].forEach(sync);
+    // Sync settings badges from current hardware state
+    document.getElementById('d-f').textContent  = Number(d.frequency).toLocaleString();
+    document.getElementById('d-d').textContent  = parseFloat(d.duty).toFixed(1);
+    document.getElementById('d-dt').textContent = parseFloat(d.deadTime).toFixed(0);
+    document.getElementById('d-ss').textContent = parseFloat(d.softStartMs).toFixed(0);
   } catch(e) {
     document.getElementById('netInfo').textContent = '🔴 انقطع الاتصال';
     document.getElementById('status-dot').className = 'dot red';
