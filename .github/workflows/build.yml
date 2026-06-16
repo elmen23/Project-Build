@@ -22,9 +22,6 @@ jobs:
     - name: Install pnpm via Corepack
       run: corepack enable && corepack prepare pnpm@latest --activate
 
-    - name: Allow build scripts
-      run: pnpm config set onlyBuiltDependencies '["esbuild","@swc/core","msw","unrs-resolver"]' --location project
-
     - name: Install dependencies
       run: pnpm install
 
