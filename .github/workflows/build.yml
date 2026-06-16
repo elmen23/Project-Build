@@ -30,6 +30,9 @@ jobs:
 
     - name: Build
       run: pnpm run build
+      env:
+        PORT: 5173
+        BASE_PATH: /
 
   firmware:
     name: ESP32 Firmware
