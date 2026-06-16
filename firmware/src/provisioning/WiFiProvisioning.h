@@ -19,6 +19,8 @@ public:
 
     void begin();
     void handle();
+    bool isProvisioned() const { return _state == STATE_STA_OK; }
+    IPAddress getIP() const { return WiFi.localIP(); }
 
 private:
     enum State : uint8_t {
@@ -281,9 +283,11 @@ void WiFiProvisioning::_onRoot() {
             _serveSuccessPage();
             return;
         }
-        _servePage(F("Could not connect. Check password."), true, "");
+        _servePage(F("Could not connect. Check password."), true, _scanCache);
         _testDone = false;
+        _ssid = _testSSID;
         _scanState = 0;
+        _scanCache = "";
         return;
     }
 
@@ -477,7 +481,7 @@ String WiFiProvisioning::_signalBars(int quality) {
         h += "<span class='bar b";
         h += char('0' + i);
         h += "'";
-        if (i < bars) h += "></span>";
+        if (i < bars) h += " on></span>";
         else h += "></span>";
     }
     h += "</span>";
