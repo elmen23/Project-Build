@@ -13,7 +13,6 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include <DNSServer.h>
 #include <ESPAsyncWebServer.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -69,7 +68,6 @@ static ConfigManager     cfgMgr;
 static EventLogger       evtLog;
 static AsyncWebServer    server(80);
 static AsyncWebSocket    ws("/ws");
-static DNSServer         dnsServer;       // Captive portal redirect
 
 // ── WiFi Scan State ─────────────────────────────────────────────
 static volatile bool     g_scanDone   = false;
@@ -727,31 +725,34 @@ static void wifiEvent(WiFiEvent_t event) {
 void setup() {
   Serial.begin(115200);
   delay(300);
-  Serial.println("\n╔══════════════════════════════════════════╗");
-  Serial.println("║   Induction Heater v3.0 — Real-time      ║");
-  Serial.println("║   ESP32 MCPWM Half-Bridge Controller     ║");
-  Serial.println("╚══════════════════════════════════════════╝");
+  Serial.println("\n╔══ DEBUG BOOT ═══════════════════════════════╗");
+  Serial.println("║   Induction Heater v3.0 — Debug Build      ║");
+  Serial.println("╚══════════════════════════════════════════════╝");
 
-  // Init subsystems
+  Serial.println("[DBG] 1/10 evtLog.begin()");
   evtLog.begin();
+  Serial.println("[DBG] 2/10 cfgMgr.begin()");
   cfgMgr.begin();
+  Serial.println("[DBG] 3/10 applyConfig()");
   applyConfig();
 
+  Serial.println("[DBG] 4/10 WiFi.onEvent()");
   WiFi.onEvent(wifiEvent);
 
+  Serial.println("[DBG] 5/10 g_scanMutex");
   g_scanMutex = xSemaphoreCreateMutex();
   if (!g_scanMutex) {
     Serial.println("[FATAL] Failed to create scan mutex");
   }
 
-  // Emergency stop pin
   pinMode(EMERGENCY_PIN, INPUT_PULLUP);
+  Serial.println("[DBG] 6/10 attachInterrupt");
   attachInterrupt(digitalPinToInterrupt(EMERGENCY_PIN), onEmergencyISR, FALLING);
-  Serial.printf("[Safety] Emergency stop on GPIO %d (active-LOW)\n", EMERGENCY_PIN);
 
-  // (Config already loaded via cfgMgr.begin() + applyConfig() above)
+  Serial.println("[DBG] 7/10 setupPWM()");
   setupPWM();
 
+  Serial.println("[DBG] 8/10 WiFi init");
   if (wifiMgr.loadCredentials()) {
     wifiMgr.retryCount   = 0;
     wifiMgr.wasConnected = false;
@@ -761,23 +762,17 @@ void setup() {
     triggerScan();
   }
 
-  // Start captive portal DNS AFTER WiFi AP is confirmed running
-  // (WiFi.softAPIP() is now valid: 192.168.4.1)
-  if (dnsServer.start(53, "*", WiFi.softAPIP())) {
-    Serial.printf("[DNS] Captive portal active @ %s:53\n", WiFi.softAPIP().toString().c_str());
-  } else {
-    Serial.println("[DNS] Failed to start captive portal");
-  }
-
+  Serial.println("[DBG] 9/10 setupRoutes()");
   setupRoutes();
+
+  Serial.println("[DBG] 10/10 server.begin()");
   server.begin();
 
-  Serial.printf("[Web] AP active: http://%s\n", WIFI_AP_IP);
+  Serial.printf("[DBG] Boot complete: http://%s\n", WIFI_AP_IP);
   evtLog.log(EVT_INFO, "System boot completed");
 }
 
 void loop() {
-  dnsServer.processNextRequest();   // Captive portal DNS redirect
   wifiMgr.tick();
 
   static WiFiState lastState = WIFI_STATE_INIT;
