@@ -51,8 +51,9 @@ private:
     void _onSave();
     void _onNotFound();
 
-    void _servePage(const String& msg, bool isErr);
+    void _servePage(const String& msg, bool isErr, const String& scanHtml = "");
     String _formHTML();
+    String _scanHTML();
     bool _loadCreds();
     void _saveCreds();
     String _esc(const String& s);
@@ -66,6 +67,12 @@ static const char P_TOP[] PROGMEM =
     "body{font-family:-apple-system,sans-serif;background:#f5f5f5;padding:20px}"
     ".c{background:#fff;border-radius:12px;padding:24px;max-width:480px;margin:40px auto}"
     "h1{font-size:20px;margin:0 0 16px;color:#222}"
+    ".networks{margin-bottom:16px}"
+    ".n{padding:10px 0;border-bottom:1px solid #eee;cursor:pointer}"
+    ".n:hover{background:#f5f5f5;margin:0 -4px;padding:10px 4px}"
+    ".s{font-weight:600;color:#333}"
+    ".r{float:right;color:#999;font-size:13px}"
+    ".ns{color:#999;font-size:14px;margin-bottom:12px;display:block}"
     "label{display:block;font-size:14px;font-weight:600;color:#555;margin:12px 0 4px}"
     "input{width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px}"
     "input:focus{border-color:#007AFF;outline:none}"
@@ -74,7 +81,9 @@ static const char P_TOP[] PROGMEM =
     "button:hover{background:#0056CC}"
     ".e{color:#d32f2f;text-align:center;margin-top:12px;font-size:14px}"
     ".i{color:#1976d2;text-align:center;margin-top:12px;font-size:14px}"
-    "</style></head><body><div class=c><h1>IH Setup</h1>";
+    "</style>"
+    "<script>function p(n){document.getElementById('s').value=n}</script>"
+    "</head><body><div class=c><h1>IH Setup</h1>";
 
 static const char P_BOTTOM[] PROGMEM = "</div></body></html>";
 
@@ -84,6 +93,11 @@ static const char P_FORM[] PROGMEM =
     "<label>Password</label>"
     "<input id=p name=pass type=password placeholder='Password'>"
     "<button>Connect</button></form>";
+
+static const char P_NET_ROW[] PROGMEM =
+    "<div class=n onclick='p(\"%s\")'>"
+    "<span class=s>%s</span>"
+    "<span class=r>%d%%</span></div>";
 
 void WiFiProvisioning::begin() {
     Serial.begin(115200);
@@ -191,11 +205,12 @@ void WiFiProvisioning::_stopAP() {
 }
 
 void WiFiProvisioning::_onRoot() {
+    String scanHtml = _scanHTML();
     if (_state == STATE_AP_FAIL) {
-        _servePage(F("Wrong credentials or network unreachable"), true);
+        _servePage(F("Wrong credentials or network unreachable"), true, scanHtml);
         _state = STATE_AP;
     } else {
-        _servePage("", false);
+        _servePage("", false, scanHtml);
     }
 }
 
@@ -220,15 +235,20 @@ void WiFiProvisioning::_onNotFound() {
     _server->client().stop();
 }
 
-void WiFiProvisioning::_servePage(const String& msg, bool isErr) {
+void WiFiProvisioning::_servePage(const String& msg, bool isErr, const String& scanHtml) {
     String html;
-    html.reserve(1024);
+    html.reserve(2048);
     html += FPSTR(P_TOP);
+    if (scanHtml.length()) {
+        html += F("<div class=networks>");
+        html += scanHtml;
+        html += F("</div>");
+    }
     html += _formHTML();
     if (msg.length()) {
         html += F("<div class='");
         html += isErr ? 'e' : 'i';
-        html += "'>";
+        html += "'>");
         html += msg;
         html += F("</div>");
     }
@@ -241,6 +261,54 @@ String WiFiProvisioning::_formHTML() {
     _loadCreds();
     snprintf_P(buf, sizeof(buf), P_FORM, _esc(_ssid).c_str());
     return String(buf);
+}
+
+String WiFiProvisioning::_scanHTML() {
+    WiFi.mode(WIFI_AP_STA);
+    delay(100);
+    int n = WiFi.scanNetworks();
+    if (n <= 0) {
+        WiFi.scanDelete();
+        return F("<span class=ns>No networks found</span>");
+    }
+
+    int* idx = new int[n];
+    for (int i = 0; i < n; i++) idx[i] = i;
+    for (int i = 0; i < n; i++) {
+        for (int j = i + 1; j < n; j++) {
+            if (WiFi.RSSI(idx[j]) > WiFi.RSSI(idx[i])) {
+                int t = idx[i]; idx[i] = idx[j]; idx[j] = t;
+            }
+        }
+    }
+
+    bool* skip = new bool[n]();
+    for (int i = 0; i < n; i++) {
+        if (skip[i]) continue;
+        for (int j = i + 1; j < n; j++) {
+            if (WiFi.SSID(idx[i]) == WiFi.SSID(idx[j])) skip[j] = true;
+        }
+    }
+
+    String html;
+    int shown = 0;
+    for (int i = 0; i < n && shown < 15; i++) {
+        if (skip[i]) continue;
+        String ssid = WiFi.SSID(idx[i]);
+        if (ssid.length() == 0) continue;
+        int rssi = WiFi.RSSI(idx[i]);
+        int quality = constrain(2 * (rssi + 100), 0, 100);
+        char row[256];
+        snprintf_P(row, sizeof(row), P_NET_ROW,
+            _esc(ssid).c_str(), _esc(ssid).c_str(), quality);
+        html += row;
+        shown++;
+    }
+
+    delete[] idx;
+    delete[] skip;
+    WiFi.scanDelete();
+    return html;
 }
 
 String WiFiProvisioning::_esc(const String& s) {
