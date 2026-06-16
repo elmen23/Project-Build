@@ -51,6 +51,7 @@ public:
   String  connectingSSID;
   int     retryCount       = 0;
   bool    wasConnected     = false;
+  bool    forceControlPanel = false;   // skip WiFi, show control panel in AP mode
 
   // Timing trackers
   uint32_t connectStartMs  = 0;

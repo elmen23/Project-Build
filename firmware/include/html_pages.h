@@ -188,6 +188,12 @@ static const char SETUP_HTML[] PROGMEM = R"rawliteral(
   <div class="btn-row" style="margin-top:16px">
     <button class="secondary" onclick="startScan()" id="rescanBtn" disabled>↻ إعادة البحث</button>
   </div>
+  <div style="text-align:center;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+    <button class="primary" onclick="skipToAP()" style="background:linear-gradient(135deg,var(--muted),#475569);max-width:260px">
+      ⚡ استخدام الجهاز في وضع AP
+    </button>
+    <div style="font-size:.72rem;color:var(--muted);margin-top:6px">تجاوز اتصال WiFi واستخدم لوحة التحكم عبر شبكة الجهاز</div>
+  </div>
 </div>
 
 <!-- ═══ PHASE 2: Password ═══ -->
@@ -405,6 +411,12 @@ function showResult(success, ip, extra) {
       <div class="btn-row" style="margin-top:12px">
         <button class="secondary" onclick="backToScan()">← المحاولة مجدداً</button>
         <button class="primary" onclick="retryPass()">إعادة كلمة المرور</button>
+      </div>
+      <div style="text-align:center;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+        <button class="primary" onclick="skipToAP()" style="background:linear-gradient(135deg,var(--muted),#475569)">
+          ⚡ استخدام الجهاز في وضع AP
+        </button>
+        <div style="font-size:.72rem;color:var(--muted);margin-top:6px">تجاوز واستخدام لوحة التحكم عبر شبكة الجهاز</div>
       </div>`;
   }
 }
@@ -412,6 +424,17 @@ function retryPass() { showPhase('pass'); setStep(2);
   document.getElementById('inp-pass').value = '';
   document.getElementById('connectBtn').disabled = false;
   setTimeout(() => document.getElementById('inp-pass').focus(), 100);
+}
+
+// ── Skip to AP mode ──
+async function skipToAP() {
+  try {
+    const r = await fetch('/use-ap', { method: 'POST' });
+    if (!r.ok) throw new Error();
+    window.location.href = '/';
+  } catch(e) {
+    alert('فشل: ' + e.message);
+  }
 }
 
 // Boot

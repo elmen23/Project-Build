@@ -267,11 +267,18 @@ static void setupPWM() {
 // ═════════════════════════════════════════════════════════════════
 
 static void setupRoutes() {
-  // ── Root: serve control page if connected, setup page otherwise ──
+  // ── Root: serve control page if connected or forced, setup page otherwise ──
   server.on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
-    const char* page = (wifiMgr.state == WIFI_STATE_CONNECTED)
+    const char* page = (wifiMgr.state == WIFI_STATE_CONNECTED || wifiMgr.forceControlPanel)
                          ? INDEX_HTML : SETUP_HTML;
     req->send_P(200, "text/html", page);
+  });
+
+  // ── Force control panel in AP mode ──
+  server.on("/use-ap", HTTP_POST, [](AsyncWebServerRequest* req) {
+    wifiMgr.forceControlPanel = true;
+    req->send(200, "application/json", "{\"success\":true,\"redirect\":\"/\"}");
+    Serial.println("[Web] AP mode forced — control panel enabled");
   });
 
   // ── WiFi Scan ──
