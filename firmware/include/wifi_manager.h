@@ -57,6 +57,7 @@ public:
   uint32_t connectStartMs  = 0;
   uint32_t failedAtMs      = 0;
   uint32_t lastReconnectMs = 0;
+  int     reconnectAttempts = 0;   // consecutive reconnect() calls before full restart
 
   Preferences prefs;
 
@@ -148,9 +149,7 @@ public:
     WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS, 6, 0, 4);  // Always use channel 6 for AP
     delay(300);
 
-    // Enable auto-reconnect for resilience
-    WiFi.setAutoReconnect(true);
-
+    // NOTE: setAutoReconnect NOT used — we have our own retry logic in tick()
     WiFi.begin(ssid.c_str(), pass.c_str());
     connectStartMs = millis();
     retryCount++;
@@ -215,6 +214,13 @@ public:
           retryCount   = 0;
           wasConnected = true;
           failedAtMs   = 0;
+          reconnectAttempts = 0;
+
+          // Sync AP channel to STA's channel — avoids AP client disconnections
+          // when the single radio switches between channels.
+          if (WiFi.channel() > 0 && WiFi.channel() <= 13) {
+            WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS, WiFi.channel(), 0, 4);
+          }
 
           Serial.printf("[WiFiMgr] ✓ Connected! IP=%s, RSSI=%d dBm\n",
                         staIP.c_str(), WiFi.RSSI());
@@ -228,32 +234,31 @@ public:
 
           if (wasConnected) {
             // We were connected before — this is a transient disconnect.
-            // Retry indefinitely with backoff.
+            // Retry with backoff, non-blocking.
             if (millis() - lastReconnectMs >= WIFI_RECONNECT_INTERVAL_MS) {
               lastReconnectMs = millis();
+              connectStartMs  = millis();  // reset timeout window
 
-              // Try reconnect() first — retries DHCP without full restart
-              WiFi.reconnect();
-              delay(2000);
-              if (WiFi.status() == WL_CONNECTED) {
-                staIP  = WiFi.localIP().toString();
-                state  = WIFI_STATE_CONNECTED;
-                retryCount = 0;
-                Serial.println("[WiFiMgr] ✓ Reconnect succeeded!");
-                return true;
+              if (++reconnectAttempts <= 3) {
+                // First 3 attempts: quick DHCP renew (non-blocking)
+                WiFi.reconnect();
+              } else {
+                // Subsequent: full restart with credentials
+                reconnectAttempts = 0;
+                WiFi.disconnect(true, true);
+                startAPSTA(savedSSID, savedPass);
               }
-              // Full restart if reconnect() failed
-              WiFi.disconnect(true, true);
-              delay(300);
-              startAPSTA(savedSSID, savedPass);
+              // NOTE: no delay() here — we'll check status on the next tick()
             }
           }
           else if (retryCount < WIFI_MAX_RETRIES) {
             // Initial provisioning: retry STA with full reset
-            Serial.printf("[WiFiMgr] Retrying (%d/%d)...\n", retryCount, WIFI_MAX_RETRIES);
-            WiFi.disconnect(true, true);
-            delay(300);
-            startAPSTA(savedSSID, savedPass);
+            if (millis() - lastReconnectMs >= WIFI_RECONNECT_INTERVAL_MS) {
+              lastReconnectMs = millis();
+              Serial.printf("[WiFiMgr] Retrying (%d/%d)...\n", retryCount, WIFI_MAX_RETRIES);
+              WiFi.disconnect(true, true);
+              startAPSTA(savedSSID, savedPass);
+            }
           }
           else {
             // Max retries exhausted → pure AP fallback with cooldown timer

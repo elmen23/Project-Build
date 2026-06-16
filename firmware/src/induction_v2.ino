@@ -1,32 +1,33 @@
 /**
  * ═══════════════════════════════════════════════════════════════════
- *  Induction Heater Controller v2.1 — ESP32 (Enhanced Build)
+ *  Induction Heater Controller v3.0 — ESP32 (Real-time Edition)
  * ═══════════════════════════════════════════════════════════════════
- *  Features:
- *  • MCPWM half-bridge driver with complementary outputs
- *  • Configurable frequency, duty, dead-time, soft-start
- *  • Dual-mode WiFi: AP provisioning + STA operation
- *  • RESTful HTTP API with full input validation
- *  • Thread-safe shared state with critical sections
- *  • Watchdog-style connection monitoring
+ *  New in v3.0:
+ *  • WebSocket real-time broadcast (replaces HTTP polling)
+ *  • Emergency Stop (GPIO interrupt + Web UI)
+ *  • Run Timeout (auto-stop after configurable duration)
+ *  • Event Log (NVS circular buffer)
+ *  • JSON Config File (editable via Web UI)
  * ═══════════════════════════════════════════════════════════════════
  */
 
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
-#include <Preferences.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "driver/mcpwm.h"
 
 #include "wifi_manager.h"
+#include "event_logger.h"
+#include "config_manager.h"
 #include "html_pages.h"
 
 // ── Pin Configuration ───────────────────────────────────────────
-#define PWM_PIN_A     GPIO_NUM_18
-#define PWM_PIN_B     GPIO_NUM_19
+#define PWM_PIN_A         GPIO_NUM_18
+#define PWM_PIN_B         GPIO_NUM_19
+#define EMERGENCY_PIN     GPIO_NUM_23   // Active-LOW emergency stop button
 
 // ── Parameter Limits ────────────────────────────────────────────
 #define FREQ_MIN       1000.0f
@@ -52,13 +53,21 @@ static volatile bool  g_running    = false;
 static volatile bool  g_softStart  = false;
 static volatile bool  g_started    = false;
 
-// ── Parameter Persistence ───────────────────────────────────────
-static Preferences    g_prefs;
-#define PARAMS_NS    "induction"
+// ── Run Timeout ─────────────────────────────────────────────────
+static volatile uint32_t g_runStartMs    = 0;
+static volatile uint32_t g_runTimeoutSec = 1800;  // default 30 min
+static volatile bool     g_timeoutEnabled  = true;
+
+// ── Cross-Task Communication Flags ──────────────────────────────
+static volatile bool  g_emergencyPending   = false;  // set in ISR, consumed in loop()
+static volatile bool  g_softStartComplete  = false;  // set in softStartTask, consumed in loop()
 
 // ── Subsystem Instances ─────────────────────────────────────────
 static WiFiManager       wifiMgr;
+static ConfigManager     cfgMgr;
+static EventLogger       evtLog;
 static AsyncWebServer    server(80);
+static AsyncWebSocket    ws("/ws");
 
 // ── WiFi Scan State ─────────────────────────────────────────────
 static volatile bool     g_scanDone   = false;
@@ -66,39 +75,36 @@ static volatile bool     g_scanning   = false;
 static String            g_scanResult = "[]";
 static SemaphoreHandle_t g_scanMutex  = NULL;
 
+// ── Forward Declarations ────────────────────────────────────────
+static void stopPWM();
+static void broadcastStatus();
+static void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
+                      AwsEventType type, void *arg, uint8_t *data, size_t len);
+
 // ═════════════════════════════════════════════════════════════════
-//  Parameter Persistence (NVS)
+//  Config Load / Apply
 // ═════════════════════════════════════════════════════════════════
 
-static void loadParameters() {
-  g_prefs.begin(PARAMS_NS, true);  // read-only
-  g_freq = g_prefs.getFloat("freq",   100000.0f);
-  g_duty = g_prefs.getFloat("duty",   50.0f);
-  g_dt   = g_prefs.getFloat("dt",     500.0f);
-  g_ss   = g_prefs.getFloat("ss",     3000.0f);
-  g_prefs.end();
+static void applyConfig() {
+  g_freq   = cfgMgr.getFloat("pwm", "frequency",     100000.0f);
+  g_duty   = cfgMgr.getFloat("pwm", "duty",          50.0f);
+  g_dt     = cfgMgr.getFloat("pwm", "dead_time_ns",  500.0f);
+  g_ss     = cfgMgr.getFloat("pwm", "soft_start_ms", 3000.0f);
+  g_runTimeoutSec = cfgMgr.getInt("safety", "run_timeout_sec", 1800);
+  g_timeoutEnabled = cfgMgr.getBool("safety", "enable_timeout", true);
 
-  // Clamp to valid ranges
+  // Clamp
   if (g_freq < FREQ_MIN || g_freq > FREQ_MAX || isnan(g_freq) || isinf(g_freq)) g_freq = 100000.0f;
   if (g_duty < DUTY_MIN || g_duty > DUTY_MAX || isnan(g_duty) || isinf(g_duty)) g_duty = 50.0f;
   if (g_dt   < DT_MIN   || g_dt   > DT_MAX   || isnan(g_dt)   || isinf(g_dt))   g_dt   = 500.0f;
   if (g_ss   < SS_MIN   || g_ss   > SS_MAX   || isnan(g_ss)   || isinf(g_ss))   g_ss   = 3000.0f;
-
-  Serial.printf("[Params] Loaded: freq=%.0f Hz, duty=%.1f%%, dt=%.0f ns, ss=%.0f ms\n",
-                g_freq, g_duty, g_dt, g_ss);
 }
 
-static void saveParameters() {
-  g_prefs.begin(PARAMS_NS, false);  // read-write
-  g_prefs.putFloat("freq", g_freq);
-  g_prefs.putFloat("duty", g_duty);
-  g_prefs.putFloat("dt",   g_dt);
-  g_prefs.putFloat("ss",   g_ss);
-  g_prefs.end();
-
-  Serial.printf("[Params] Saved: freq=%.0f Hz, duty=%.1f%%, dt=%.0f ns, ss=%.0f ms\n",
-                g_freq, g_duty, g_dt, g_ss);
-}
+// ═════════════════════════════════════════════════════════════════
+//  (Legacy NVS persistence removed — all config now goes through
+//   ConfigManager. Parameters are persisted via cfgMgr.setFloat
+//   et al. + cfgMgr.save() to a single NVS namespace.)
+// ═════════════════════════════════════════════════════════════════
 
 // ═════════════════════════════════════════════════════════════════
 //  Helper: nanoseconds → MCPWM dead-time ticks
@@ -125,8 +131,7 @@ static void applyDeadTime(float ns) {
 }
 
 static void applyDuty(float pct) {
-  mcpwm_set_duty_type(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, MCPWM_DUTY_MODE_0);
-  mcpwm_set_duty_type(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, MCPWM_DUTY_MODE_0);
+  // NOTE: mcpwm_set_duty_type() is called once in setupPWM(), not here
   mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, pct);
   mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, pct);
 }
@@ -146,7 +151,6 @@ static void startPWMOutput() {
 // ═════════════════════════════════════════════════════════════════
 
 static void softStartTask(void* pv) {
-  // Snapshot target parameters under lock
   float target, ms;
   portENTER_CRITICAL(&s_mux);
   target = g_duty;
@@ -168,14 +172,15 @@ static void softStartTask(void* pv) {
   portENTER_CRITICAL(&s_mux);
   g_softStart = false;
   g_running   = true;
+  g_runStartMs = millis();
+  g_softStartComplete = true;   // main loop will log + broadcast
   portEXIT_CRITICAL(&s_mux);
 
-  Serial.println("[SoftStart] Ramp complete, running.");
   vTaskDelete(NULL);
 }
 
 // ═════════════════════════════════════════════════════════════════
-//  Control: Start / Stop
+//  Control: Start / Stop / Emergency
 // ═════════════════════════════════════════════════════════════════
 
 static bool startPWM() {
@@ -191,19 +196,56 @@ static bool startPWM() {
 
   startPWMOutput();
   xTaskCreate(softStartTask, "SoftStart", 3072, NULL, 5, NULL);
-  Serial.println("[Control] Soft-start initiated.");
+  evtLog.log(EVT_START, "PWM soft-start initiated");
+  broadcastStatus();
   return true;
 }
 
 static void stopPWM() {
   portENTER_CRITICAL(&s_mux);
+  bool wasRunning = g_running || g_softStart;
   g_running   = false;
   g_softStart = false;
   g_started   = false;
   portEXIT_CRITICAL(&s_mux);
 
   stopPWMOutput();
+  if (wasRunning) {
+    evtLog.log(EVT_STOP, "PWM stopped");
+    broadcastStatus();
+  }
   Serial.println("[Control] PWM stopped.");
+}
+
+static void emergencyStop() {
+  portENTER_CRITICAL(&s_mux);
+  bool wasRunning = g_running || g_softStart;
+  g_running   = false;
+  g_softStart = false;
+  g_started   = false;
+  portEXIT_CRITICAL(&s_mux);
+
+  stopPWMOutput();
+  if (wasRunning) {
+    evtLog.log(EVT_EMERGENCY, "EMERGENCY STOP triggered");
+    broadcastStatus();
+  }
+  Serial.println("[EMERGENCY] STOP triggered!");
+}
+
+// ═════════════════════════════════════════════════════════════════
+//  Emergency Stop ISR
+// ═════════════════════════════════════════════════════════════════
+
+static void IRAM_ATTR onEmergencyISR() {
+  // NOTE: MCPWM functions are NOT ISR-safe (they use spinlocks internally).
+  // Do NOT call mcpwm_set_duty/mcpwm_stop from ISR — that can deadlock.
+  //
+  // Instead: set a flag for loop() and detach the interrupt (debounce).
+  // The loop() will call emergencyStop() which safely stops MCPWM
+  // from task context.
+  g_emergencyPending = true;
+  detachInterrupt(digitalPinToInterrupt(EMERGENCY_PIN));
 }
 
 // ═════════════════════════════════════════════════════════════════
@@ -217,7 +259,6 @@ static void scanTask(void* pv) {
     for (int i = 0; i < n; i++) {
       if (i > 0) json += ",";
       String ssid = WiFi.SSID(i);
-      // Escape JSON special characters
       ssid.replace("\\", "\\\\");
       ssid.replace("\"", "\\\"");
       ssid.replace("\b", "\\b");
@@ -276,6 +317,91 @@ static String urlDecode(const String& src) {
 }
 
 // ═════════════════════════════════════════════════════════════════
+//  Status JSON Builder
+// ═════════════════════════════════════════════════════════════════
+
+static String buildStatusJSON() {
+  portENTER_CRITICAL(&s_mux);
+  float f  = g_freq;
+  float d  = g_duty;
+  float dt = g_dt;
+  float ss = g_ss;
+  bool  ru = g_running;
+  bool  so = g_softStart;
+  bool  st = g_started;
+  uint32_t runMs = (ru && g_runStartMs > 0) ? (millis() - g_runStartMs) : 0;
+  portEXIT_CRITICAL(&s_mux);
+
+  char buf[600];
+  snprintf(buf, sizeof(buf),
+    "{\"frequency\":%.1f,"
+    "\"duty\":%.2f,"
+    "\"deadTime\":%.1f,"
+    "\"softStartMs\":%.1f,"
+    "\"running\":%s,"
+    "\"softStarting\":%s,"
+    "\"started\":%s,"
+    "\"runTimeMs\":%u,"
+    "\"runTimeoutSec\":%u,"
+    "\"enableTimeout\":%s,"
+    "\"ssid\":\"%s\","
+    "\"ip\":\"%s\","
+    "\"rssi\":%d}",
+    f, d, dt, ss,
+    ru  ? "true" : "false",
+    so  ? "true" : "false",
+    st  ? "true" : "false",
+    runMs,
+    g_runTimeoutSec,
+    g_timeoutEnabled ? "true" : "false",
+    wifiMgr.savedSSID.c_str(),
+    wifiMgr.staIP.c_str(),
+    (wifiMgr.state == WIFI_STATE_CONNECTED) ? WiFi.RSSI() : 0
+  );
+  return String(buf);
+}
+
+// ═════════════════════════════════════════════════════════════════
+//  WebSocket Broadcast
+// ═════════════════════════════════════════════════════════════════
+
+static void broadcastStatus() {
+  String json = buildStatusJSON();
+  ws.textAll(json);
+}
+
+static void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
+                      AwsEventType type, void *arg, uint8_t *data, size_t len) {
+  switch (type) {
+    case WS_EVT_CONNECT:
+      Serial.printf("[WS] Client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+      client->text(buildStatusJSON());
+      break;
+    case WS_EVT_DISCONNECT:
+      Serial.printf("[WS] Client #%u disconnected\n", client->id());
+      break;
+    case WS_EVT_DATA: {
+      AwsFrameInfo *info = (AwsFrameInfo*)arg;
+      if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+        data[len] = 0;
+        String msg = (char*)data;
+        msg.trim();
+        if (msg == "start") {
+          startPWM();
+        } else if (msg == "stop") {
+          stopPWM();
+        } else if (msg == "status") {
+          client->text(buildStatusJSON());
+        }
+      }
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════
 //  MCPWM Initialization
 // ═════════════════════════════════════════════════════════════════
 
@@ -285,7 +411,7 @@ static void setupPWM() {
 
   mcpwm_config_t cfg = {};
   cfg.frequency    = (uint32_t)g_freq;
-  cfg.cmpr_a       = 0.0f;          // Safety: start at 0%
+  cfg.cmpr_a       = 0.0f;
   cfg.cmpr_b       = 0.0f;
   cfg.counter_mode = MCPWM_UP_COUNTER;
   cfg.duty_mode    = MCPWM_DUTY_MODE_0;
@@ -293,10 +419,15 @@ static void setupPWM() {
   esp_err_t err = mcpwm_init(MCPWM_UNIT_0, MCPWM_TIMER_0, &cfg);
   if (err != ESP_OK) {
     Serial.printf("[PWM] MCPWM init failed: %d\n", (int)err);
+    evtLog.log(EVT_ERROR, "MCPWM init failed: %d", (int)err);
   }
 
   applyDeadTime(g_dt);
-  // Do NOT start here — start only on user request
+
+  // Set duty type once (not on every applyDuty call)
+  mcpwm_set_duty_type(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, MCPWM_DUTY_MODE_0);
+  mcpwm_set_duty_type(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, MCPWM_DUTY_MODE_0);
+
   Serial.println("[PWM] Initialized (outputs idle)");
 }
 
@@ -305,7 +436,11 @@ static void setupPWM() {
 // ═════════════════════════════════════════════════════════════════
 
 static void setupRoutes() {
-  // ── Root: serve control page if connected or forced, setup page otherwise ──
+  // WebSocket
+  ws.onEvent(onWsEvent);
+  server.addHandler(&ws);
+
+  // ── Root ──
   server.on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
     const char* page = (wifiMgr.state == WIFI_STATE_CONNECTED || wifiMgr.forceControlPanel)
                          ? INDEX_HTML : SETUP_HTML;
@@ -337,26 +472,19 @@ static void setupRoutes() {
     }
   });
 
-  // ── WiFi Connect (body handler for POST data) ──
+  // ── WiFi Connect ──
   server.on("/connect", HTTP_POST,
     [](AsyncWebServerRequest* req) {
-      req->send(200, "text/plain", "OK");
-    },
-    nullptr,
-    [](AsyncWebServerRequest* req, uint8_t* data, size_t len,
-       size_t index, size_t total) {
-      static String bodyBuf;
-      if (index == 0) bodyBuf = "";
-      bodyBuf += String((const char*)data, len);
-      if (index + len < total) return; // wait for full body
+      // req->_tempObject holds the accumulated body (String*)
+      String* bodyBuf = static_cast<String*>(req->_tempObject);
+      if (!bodyBuf) { req->send(400, "text/plain", "No body"); return; }
 
-      // Parse application/x-www-form-urlencoded
       auto getParam = [&](const String& key) -> String {
-        int s = bodyBuf.indexOf(key + "=");
+        int s = bodyBuf->indexOf(key + "=");
         if (s < 0) return "";
         s += key.length() + 1;
-        int e = bodyBuf.indexOf('&', s);
-        String val = (e < 0) ? bodyBuf.substring(s) : bodyBuf.substring(s, e);
+        int e = bodyBuf->indexOf('&', s);
+        String val = (e < 0) ? bodyBuf->substring(s) : bodyBuf->substring(s, e);
         return urlDecode(val);
       };
 
@@ -369,12 +497,27 @@ static void setupRoutes() {
         wifiMgr.retryCount   = 0;
         wifiMgr.wasConnected = false;
         wifiMgr.startAPSTA(ssid, pass, channel);
+        evtLog.log(EVT_WIFI_CONNECT, "Connect request: %s", ssid.c_str());
         Serial.printf("[Web] Connect request: SSID='%s', pass_len=%d, ch=%d\n",
                       ssid.c_str(), pass.length(), channel);
       } else {
         Serial.println("[Web] Invalid SSID in connect request");
       }
-      bodyBuf = "";
+
+      delete bodyBuf;
+      req->_tempObject = nullptr;
+      req->send(200, "text/plain", "OK");
+    },
+    nullptr,
+    [](AsyncWebServerRequest* req, uint8_t* data, size_t len,
+       size_t index, size_t total) {
+      if (index == 0) {
+        req->_tempObject = new String();
+      }
+      String* buf = static_cast<String*>(req->_tempObject);
+      if (buf) {
+        buf->concat(reinterpret_cast<const char*>(data), len);
+      }
     }
   );
 
@@ -385,42 +528,13 @@ static void setupRoutes() {
 
   // ── Full System Status ──
   server.on("/status", HTTP_GET, [](AsyncWebServerRequest* req) {
-    portENTER_CRITICAL(&s_mux);
-    float f  = g_freq;
-    float d  = g_duty;
-    float dt = g_dt;
-    float ss = g_ss;
-    bool  ru = g_running;
-    bool  so = g_softStart;
-    bool  st = g_started;
-    portEXIT_CRITICAL(&s_mux);
-
-    char buf[400];
-    snprintf(buf, sizeof(buf),
-      "{\"frequency\":%.1f,"
-      "\"duty\":%.2f,"
-      "\"deadTime\":%.1f,"
-      "\"softStartMs\":%.1f,"
-      "\"running\":%s,"
-      "\"softStarting\":%s,"
-      "\"started\":%s,"
-      "\"ssid\":\"%s\","
-      "\"ip\":\"%s\","
-      "\"rssi\":%d}",
-      f, d, dt, ss,
-      ru  ? "true" : "false",
-      so  ? "true" : "false",
-      st  ? "true" : "false",
-      wifiMgr.savedSSID.c_str(),
-      wifiMgr.staIP.c_str(),
-      (wifiMgr.state == WIFI_STATE_CONNECTED) ? WiFi.RSSI() : 0
-    );
-    req->send(200, "application/json", buf);
+    req->send(200, "application/json", buildStatusJSON());
   });
 
   // ── Set Parameters ──
   server.on("/set", HTTP_GET, [](AsyncWebServerRequest* req) {
-    // Frequency
+    bool changed = false;
+
     if (req->hasParam("f")) {
       float v = req->getParam("f")->value().toFloat();
       if (v >= FREQ_MIN && v <= FREQ_MAX && !isnan(v) && !isinf(v)) {
@@ -438,23 +552,23 @@ static void setupRoutes() {
           applyDuty(d);
           mcpwm_start(MCPWM_UNIT_0, MCPWM_TIMER_0);
         }
+        changed = true;
       }
     }
 
-    // Duty
     if (req->hasParam("d")) {
       float v = req->getParam("d")->value().toFloat();
       if (v >= DUTY_MIN && v <= DUTY_MAX && !isnan(v) && !isinf(v)) {
         portENTER_CRITICAL(&s_mux);
-        g_duty    = v;
+        g_duty = v;
         bool starting = g_softStart;
         bool runFlag  = g_running;
         portEXIT_CRITICAL(&s_mux);
         if (!starting && runFlag) applyDuty(v);
+        changed = true;
       }
     }
 
-    // Dead Time
     if (req->hasParam("dt")) {
       float v = req->getParam("dt")->value().toFloat();
       if (v >= DT_MIN && v <= DT_MAX && !isnan(v) && !isinf(v)) {
@@ -462,21 +576,34 @@ static void setupRoutes() {
         g_dt = v;
         portEXIT_CRITICAL(&s_mux);
         applyDeadTime(v);
+        changed = true;
       }
     }
 
-    // Soft Start Duration
     if (req->hasParam("ss")) {
       float v = req->getParam("ss")->value().toFloat();
       if (v >= SS_MIN && v <= SS_MAX && !isnan(v) && !isinf(v)) {
         portENTER_CRITICAL(&s_mux);
         g_ss = v;
         portEXIT_CRITICAL(&s_mux);
+        changed = true;
       }
     }
 
-    // Persist all parameter changes
-    saveParameters();
+    // Persist via ConfigManager (single source of truth)
+    portENTER_CRITICAL(&s_mux);
+    float pf = g_freq, pd = g_duty, pdt = g_dt, pss = g_ss;
+    portEXIT_CRITICAL(&s_mux);
+    cfgMgr.setFloat("pwm", "frequency", pf);
+    cfgMgr.setFloat("pwm", "duty", pd);
+    cfgMgr.setFloat("pwm", "dead_time_ns", pdt);
+    cfgMgr.setFloat("pwm", "soft_start_ms", pss);
+    cfgMgr.save();
+
+    if (changed) {
+      evtLog.log(EVT_PARAM_CHANGE, "f=%.0f d=%.1f dt=%.0f ss=%.0f", pf, pd, pdt, pss);
+      broadcastStatus();
+    }
 
     req->send(200, "text/plain", "OK");
   });
@@ -493,10 +620,65 @@ static void setupRoutes() {
     req->send(200, "application/json", "{\"success\":true}");
   });
 
+  // ── Emergency Stop HTTP endpoint ──
+  server.on("/emergency", HTTP_POST, [](AsyncWebServerRequest* req) {
+    emergencyStop();
+    req->send(200, "application/json", "{\"success\":true,\"emergency\":true}");
+  });
+
+  // ── Event Log ──
+  server.on("/events", HTTP_GET, [](AsyncWebServerRequest* req) {
+    req->send(200, "application/json", evtLog.toJSON());
+  });
+
+  server.on("/events/clear", HTTP_POST, [](AsyncWebServerRequest* req) {
+    evtLog.clear();
+    req->send(200, "application/json", "{\"success\":true}");
+  });
+
+  // ── Config File ──
+  server.on("/config", HTTP_GET, [](AsyncWebServerRequest* req) {
+    req->send(200, "application/json", cfgMgr.json);
+  });
+
+  server.on("/config", HTTP_POST,
+    [](AsyncWebServerRequest* req) {
+      String* bodyBuf = static_cast<String*>(req->_tempObject);
+      if (!bodyBuf) { req->send(400, "text/plain", "No body"); return; }
+
+      cfgMgr.json = *bodyBuf;
+      cfgMgr.save();
+      applyConfig();
+      evtLog.log(EVT_INFO, "Config updated");
+
+      delete bodyBuf;
+      req->_tempObject = nullptr;
+      req->send(200, "text/plain", "OK");
+    },
+    nullptr,
+    [](AsyncWebServerRequest* req, uint8_t* data, size_t len,
+       size_t index, size_t total) {
+      if (index == 0) {
+        req->_tempObject = new String();
+      }
+      String* buf = static_cast<String*>(req->_tempObject);
+      if (buf) {
+        buf->concat(reinterpret_cast<const char*>(data), len);
+      }
+    }
+  );
+
+  server.on("/config/reset", HTTP_POST, [](AsyncWebServerRequest* req) {
+    cfgMgr.resetToDefaults();
+    applyConfig();
+    req->send(200, "application/json", cfgMgr.json);
+  });
+
   // ── Reset WiFi & Reboot ──
   server.on("/reset-wifi", HTTP_POST, [](AsyncWebServerRequest* req) {
     req->send(200, "text/plain", "OK");
     stopPWM();
+    evtLog.log(EVT_INFO, "WiFi reset requested");
     Serial.println("[Web] WiFi reset requested, rebooting...");
     xTaskCreate([](void*) {
       vTaskDelay(pdMS_TO_TICKS(800));
@@ -525,9 +707,11 @@ static void wifiEvent(WiFiEvent_t event) {
       break;
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
       Serial.printf("[WiFiEvent] GOT IP: %s\n", WiFi.localIP().toString().c_str());
+      evtLog.log(EVT_WIFI_CONNECT, "STA IP: %s", WiFi.localIP().toString().c_str());
       break;
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
       Serial.printf("[WiFiEvent] STA DISCONNECTED, status=%d\n", WiFi.status());
+      evtLog.log(EVT_WIFI_DISCONNECT, "STA disconnected");
       break;
     default:
       break;
@@ -542,9 +726,14 @@ void setup() {
   Serial.begin(115200);
   delay(300);
   Serial.println("\n╔══════════════════════════════════════════╗");
-  Serial.println("║   Induction Heater v2.1 — Enhanced Build ║");
+  Serial.println("║   Induction Heater v3.0 — Real-time      ║");
   Serial.println("║   ESP32 MCPWM Half-Bridge Controller     ║");
   Serial.println("╚══════════════════════════════════════════╝");
+
+  // Init subsystems
+  evtLog.begin();
+  cfgMgr.begin();
+  applyConfig();
 
   WiFi.onEvent(wifiEvent);
 
@@ -553,9 +742,12 @@ void setup() {
     Serial.println("[FATAL] Failed to create scan mutex");
   }
 
-  // Load saved parameters BEFORE setting up PWM
-  loadParameters();
+  // Emergency stop pin
+  pinMode(EMERGENCY_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(EMERGENCY_PIN), onEmergencyISR, FALLING);
+  Serial.printf("[Safety] Emergency stop on GPIO %d (active-LOW)\n", EMERGENCY_PIN);
 
+  // (Config already loaded via cfgMgr.begin() + applyConfig() above)
   setupPWM();
 
   if (wifiMgr.loadCredentials()) {
@@ -571,6 +763,7 @@ void setup() {
   server.begin();
 
   Serial.printf("[Web] AP active: http://%s\n", WIFI_AP_IP);
+  evtLog.log(EVT_INFO, "System boot completed");
 }
 
 void loop() {
@@ -589,6 +782,57 @@ void loop() {
       Serial.println("[WiFi] Connecting...");
     }
   }
+
+  // ── Run Timeout Check ──
+  if (g_timeoutEnabled && g_running) {
+    uint32_t elapsedSec = (millis() - g_runStartMs) / 1000;
+    if (elapsedSec >= g_runTimeoutSec) {
+      stopPWM();
+      evtLog.log(EVT_TIMEOUT, "Auto-stop after %u sec", g_runTimeoutSec);
+      broadcastStatus();
+    }
+  }
+
+  // ── Emergency Stop: ISR flag + hardware poll ──
+  if (g_emergencyPending) {
+    g_emergencyPending = false;
+    emergencyStop();
+    // Re-attach interrupt with 50ms debounce
+    static uint32_t lastEmergReattach = 0;
+    if (millis() - lastEmergReattach > 50) {
+      attachInterrupt(digitalPinToInterrupt(EMERGENCY_PIN), onEmergencyISR, FALLING);
+      lastEmergReattach = millis();
+    }
+  }
+  // Hardware polling: backup for edge-triggered misses (debounced)
+  {
+    static uint32_t lastPollEmerg = 0;
+    if (digitalRead(EMERGENCY_PIN) == LOW && millis() - lastPollEmerg > 200) {
+      lastPollEmerg = millis();
+      emergencyStop();
+    }
+  }
+
+  // ── Soft-start completion (deferred from task context) ──
+  if (g_softStartComplete) {
+    g_softStartComplete = false;
+    float target;
+    portENTER_CRITICAL(&s_mux);
+    target = g_duty;
+    portEXIT_CRITICAL(&s_mux);
+    evtLog.log(EVT_START, "Soft-start complete, running at %.1f%%", target);
+    broadcastStatus();
+  }
+
+  // ── Periodic WS broadcast (every ~1s) ──
+  static uint32_t lastBroadcast = 0;
+  if (millis() - lastBroadcast >= 1000) {
+    lastBroadcast = millis();
+    broadcastStatus();
+  }
+
+  // ── Clean up disconnected WS clients ──
+  ws.cleanupClients();
 
   vTaskDelay(pdMS_TO_TICKS(50));
 }
