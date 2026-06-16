@@ -90,39 +90,103 @@ static const char SETUP_HTML[] PROGMEM = R"rawliteral(
 </div>
 <div class="card">
   <div class="card-title">الشبكات المتاحة</div>
-  <div id="net-list" class="net-list"></div>
+  <div id="net-list" class="net-list">
+    <div style="display:flex;justify-content:center;padding:20px"><div class="spinner"></div></div>
+  </div>
   <div class="btn-row" style="margin-top:16px">
     <button class="secondary" onclick="startScan()" id="rescanBtn">↻ إعادة البحث</button>
   </div>
 </div>
+
+<!-- Connection status (hidden initially) -->
+<div id="connStatus" class="card hidden">
+  <div class="card-title">حالة الاتصال</div>
+  <div id="connMsg" style="font-size:.9rem;padding:4px 0">جارٍ الاتصال…</div>
+  <div style="margin-top:10px"><div class="spinner" style="width:28px;height:28px"></div></div>
+</div>
+
+<!-- إعدادات متقدمة -->
+<div class="card">
+  <div class="card-title">خيارات متقدمة</div>
+  <button class="primary" onclick="skipSetup()" style="width:100%">🔧 تجاوز إعدادات WiFi — استخدام لوحة التحكم من AP مباشرة</button>
+  <div style="margin-top:8px;font-size:.75rem;color:var(--muted);text-align:center">
+    سيتم فتح لوحة التحكم بدون اتصال بالإنترنت
+  </div>
+</div>
+
 <script>
 async function startScan() {
-  document.getElementById('net-list').innerHTML = '<div style="display:flex;justify-content:center;padding:20px"><div class="spinner"></div></div>';
+  const list = document.getElementById('net-list');
+  list.innerHTML = '<div style="display:flex;justify-content:center;padding:20px"><div class="spinner"></div></div>';
   try {
     const r = await fetch('/scan');
     const nets = await r.json();
     renderNetworks(nets);
   } catch(e) {
-    document.getElementById('net-list').innerHTML = '<div style="color:var(--red);font-size:.85rem;text-align:center">فشل البحث</div>';
+    list.innerHTML = '<div style="color:var(--red);font-size:.85rem;text-align:center">فشل البحث</div>';
   }
 }
 function renderNetworks(nets) {
   const list = document.getElementById('net-list');
   if (!nets || nets.length === 0) { list.innerHTML = '<div style="color:var(--muted);font-size:.85rem;text-align:center">لم يتم العثور على شبكات</div>'; return; }
   list.innerHTML = nets.map(n => `
-    <div class="net-item" onclick="connect('${n.ssid.replace(/'/g,"\\'")}',${n.open},${n.ch})">
+    <div class="net-item" onclick="connect(this,'${n.ssid.replace(/'/g,"\\'")}',${n.open},${n.ch})">
       <div style="flex:1"><div class="net-ssid">${n.ssid}</div><div class="net-meta">Ch ${n.ch||'?'} · ${n.rssi} dBm</div></div>
       <div class="rssi-bar">${[4,7,10,14].map((h,i)=>`<span style="height:${h}px" class="${i<(n.rssi>=-50?4:n.rssi>=-65?3:n.rssi>=-75?2:n.rssi>=-85?1:0)?'on':''}"></span>`).join('')}</div>
       ${n.open?'':'🔒'}
     </div>`).join('');
 }
-function connect(ssid,open,ch) {
+
+// ── Connect with polling (Tasmota-style: poll /wifi-status until connected or failed) ──
+let connPoll = null;
+function connect(el,ssid,open,ch) {
   const pass = open ? '' : prompt('كلمة المرور لـ ' + ssid);
   if (pass===null) return;
+
+  // Show connection status card
+  document.getElementById('connStatus').classList.remove('hidden');
+  document.getElementById('connMsg').textContent = 'جارٍ الاتصال بـ ' + ssid + '…';
+
   fetch('/connect',{method:'POST',body:new URLSearchParams({ssid,pass,ch})});
-  alert('تم إرسال طلب الاتصال. انتظر قليلاً...');
-  setTimeout(()=>location.href='/',3000);
+
+  // Poll /wifi-status every 1.5s for up to 45s
+  let attempts = 0;
+  const maxAttempts = 30;  // 30 × 1.5s = 45s timeout
+  if (connPoll) clearInterval(connPoll);
+  connPoll = setInterval(async () => {
+    attempts++;
+    try {
+      const r = await fetch('/wifi-status');
+      const s = await r.json();
+      if (s.state === 'connected') {
+        clearInterval(connPoll);
+        document.getElementById('connMsg').textContent = '✓ متصل! جارٍ التوجيه…';
+        location.href = '/';
+      } else if (s.state === 'ap_only') {
+        clearInterval(connPoll);
+        document.getElementById('connMsg').textContent = '✗ فشل الاتصال. تحقق من كلمة المرور.';
+      } else if (attempts >= maxAttempts) {
+        clearInterval(connPoll);
+        document.getElementById('connMsg').textContent = '✗ انتهت المهلة. قد يكون الراوتر بعيداً أو كلمة المرور خاطئة.';
+      } else {
+        document.getElementById('connMsg').textContent = 'جارٍ الاتصال بـ ' + ssid + '… (محاولة ' + attempts + ')';
+      }
+    } catch(e) {
+      // Connection lost temporarily during WiFi mode switch — ignore
+    }
+  }, 1500);
 }
+
+// ── Skip WiFi — use control panel directly in AP mode ──
+async function skipSetup() {
+  try {
+    await fetch('/use-ap', {method:'POST'});
+    location.href = '/';
+  } catch(e) {
+    alert('فشل التجاوز، تحقق من الاتصال');
+  }
+}
+
 startScan();
 </script>
 </body>

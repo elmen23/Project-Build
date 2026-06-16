@@ -13,6 +13,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <DNSServer.h>
 #include <ESPAsyncWebServer.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -68,6 +69,7 @@ static ConfigManager     cfgMgr;
 static EventLogger       evtLog;
 static AsyncWebServer    server(80);
 static AsyncWebSocket    ws("/ws");
+static DNSServer         dnsServer;       // Captive portal redirect
 
 // ── WiFi Scan State ─────────────────────────────────────────────
 static volatile bool     g_scanDone   = false;
@@ -750,6 +752,9 @@ void setup() {
   // (Config already loaded via cfgMgr.begin() + applyConfig() above)
   setupPWM();
 
+  // Start captive portal DNS (redirects all domains to AP IP — Tasmota pattern)
+  dnsServer.start(53, "*", WiFi.softAPIP());
+
   if (wifiMgr.loadCredentials()) {
     wifiMgr.retryCount   = 0;
     wifiMgr.wasConnected = false;
@@ -767,6 +772,7 @@ void setup() {
 }
 
 void loop() {
+  dnsServer.processNextRequest();   // Captive portal DNS redirect
   wifiMgr.tick();
 
   static WiFiState lastState = WIFI_STATE_INIT;
