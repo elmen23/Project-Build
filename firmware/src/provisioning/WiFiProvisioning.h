@@ -248,7 +248,7 @@ void WiFiProvisioning::_servePage(const String& msg, bool isErr, const String& s
     if (msg.length()) {
         html += F("<div class='");
         html += isErr ? 'e' : 'i';
-        html += "'>");
+        html += "'>";
         html += msg;
         html += F("</div>");
     }
