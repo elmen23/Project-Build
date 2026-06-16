@@ -324,7 +324,8 @@ static void setupRoutes() {
         wifiMgr.retryCount   = 0;
         wifiMgr.wasConnected = false;
         wifiMgr.startAPSTA(ssid, pass, channel);
-        Serial.printf("[Web] Connect request: SSID='%s', ch=%d\n", ssid.c_str(), channel);
+        Serial.printf("[Web] Connect request: SSID='%s', pass_len=%d, ch=%d\n",
+                      ssid.c_str(), pass.length(), channel);
       } else {
         Serial.println("[Web] Invalid SSID in connect request");
       }
@@ -466,6 +467,26 @@ static void setupRoutes() {
 }
 
 // ═════════════════════════════════════════════════════════════════
+//  WiFi Event Handler (diagnostics)
+// ═════════════════════════════════════════════════════════════════
+
+static void wifiEvent(WiFiEvent_t event) {
+  switch (event) {
+    case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+      Serial.println("[WiFiEvent] STA CONNECTED (link layer up)");
+      break;
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+      Serial.printf("[WiFiEvent] GOT IP: %s\n", WiFi.localIP().toString().c_str());
+      break;
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+      Serial.printf("[WiFiEvent] STA DISCONNECTED, status=%d\n", WiFi.status());
+      break;
+    default:
+      break;
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════
 //  Arduino Setup & Loop
 // ═════════════════════════════════════════════════════════════════
 
@@ -476,6 +497,8 @@ void setup() {
   Serial.println("║   Induction Heater v2.1 — Enhanced Build ║");
   Serial.println("║   ESP32 MCPWM Half-Bridge Controller     ║");
   Serial.println("╚══════════════════════════════════════════╝");
+
+  WiFi.onEvent(wifiEvent);
 
   g_scanMutex = xSemaphoreCreateMutex();
   if (!g_scanMutex) {

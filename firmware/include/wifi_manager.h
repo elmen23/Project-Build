@@ -131,14 +131,19 @@ public:
     connectingSSID = ssid;
     state = WIFI_STATE_CONNECTING;
 
+    // Clean start: disconnect + turn off radio to clear stale state
+    WiFi.disconnect(true);
+    delay(100);
+
     WiFi.mode(WIFI_AP_STA);
     delay(100);
+
+    // Start AP on matched channel
     WiFi.softAPConfig(
       IPAddress(192,168,4,1),
       IPAddress(192,168,4,1),
       IPAddress(255,255,255,0)
     );
-
     int apChannel = (channel >= 1 && channel <= 13) ? channel : 1;
     WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS, apChannel, 0, 4);
     delay(200);
@@ -215,14 +220,25 @@ public:
 
         // Timeout check
         if (millis() - connectStartMs >= WIFI_CONNECT_TIMEOUT_MS) {
-          WiFi.disconnect(false, false);
-          Serial.printf("[WiFiMgr] ✗ Timeout after %d ms\n", WIFI_CONNECT_TIMEOUT_MS);
+          Serial.printf("[WiFiMgr] ✗ Timeout after %d ms (status=%d)\n",
+                        WIFI_CONNECT_TIMEOUT_MS, WiFi.status());
 
           if (wasConnected) {
             // We were connected before — this is a transient disconnect.
             // Retry indefinitely with backoff.
             if (millis() - lastReconnectMs >= WIFI_RECONNECT_INTERVAL_MS) {
               lastReconnectMs = millis();
+
+              // Try reconnect() first — retries DHCP without full restart
+              WiFi.reconnect();
+              delay(1000);
+              if (WiFi.status() == WL_CONNECTED) {
+                staIP  = WiFi.localIP().toString();
+                state  = WIFI_STATE_CONNECTED;
+                retryCount = 0;
+                Serial.println("[WiFiMgr] ✓ Reconnect succeeded!");
+                return true;
+              }
               startAPSTA(savedSSID, savedPass);
             }
           }
