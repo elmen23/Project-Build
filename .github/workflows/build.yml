@@ -80,5 +80,5 @@ jobs:
         name: esp32-firmware
         path: |
           firmware/.pio/build/esp32dev/firmware.bin
-          firmware/.pio/build/esp32dev/merged-flash.bin
+          firmware/merged-flash.bin
         retention-days: 30
