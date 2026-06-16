@@ -250,7 +250,7 @@ public:
           retryCount   = 0;
           wasConnected = true;
           lastReconnectMs = millis();
-          startSTA(savedSSID, savedPass);
+          startAPSTA(savedSSID, savedPass);
           return true;
         }
         break;
