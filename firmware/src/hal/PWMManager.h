@@ -31,13 +31,13 @@ public:
 
 private:
     const uint8_t _pinA, _pinB;
-    volatile bool  _running = false;
-    volatile bool  _softStarting = false;
-    RunState       _state = RunState::IDLE;
-    float          _lastDuty = 0.0f;
+    bool  _running = false;
+    bool  _softStarting = false;
+    RunState _state = RunState::IDLE;
+    float _lastDuty = 0.0f;
 
     uint32_t _ssStart = 0;
-    uint32_t _ssDuration = 3000;
+    uint32_t _ssDuration = 0;
     float    _ssTargetDuty = 0.0f;
 
     static uint32_t nsToTicks(float ns);

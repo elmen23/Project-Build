@@ -5,6 +5,8 @@
 #include <DNSServer.h>
 #include <WebServer.h>
 #include <Preferences.h>
+#include <vector>
+#include <algorithm>
 
 #define PROV_AP_SSID_PREFIX "IH-"
 #define PROV_AP_TIMEOUT 180
@@ -431,17 +433,13 @@ void WiFiProvisioning::_buildScanCache(int n) {
         return;
     }
 
-    int* idx = new int[n];
+    std::vector<int> idx(n);
     for (int i = 0; i < n; i++) idx[i] = i;
-    for (int i = 0; i < n; i++) {
-        for (int j = i + 1; j < n; j++) {
-            if (WiFi.RSSI(idx[j]) > WiFi.RSSI(idx[i])) {
-                int t = idx[i]; idx[i] = idx[j]; idx[j] = t;
-            }
-        }
-    }
+    std::sort(idx.begin(), idx.end(), [](int a, int b) {
+        return WiFi.RSSI(a) > WiFi.RSSI(b);
+    });
 
-    bool* skip = new bool[n]();
+    std::vector<bool> skip(n, false);
     for (int i = 0; i < n; i++) {
         if (skip[i]) continue;
         for (int j = i + 1; j < n; j++) {
@@ -465,8 +463,6 @@ void WiFiProvisioning::_buildScanCache(int n) {
         shown++;
     }
 
-    delete[] idx;
-    delete[] skip;
     _scanCache = html;
 }
 

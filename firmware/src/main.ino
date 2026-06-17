@@ -1,18 +1,17 @@
 #include <WebServer.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include <esp_task_wdt.h>
 #include "provisioning/WiFiProvisioning.h"
 #include "hal/PWMManager.h"
 #include "hal/ConfigStore.h"
-#include "core/Types.h"
+#include "core/AppContext.h"
 #include "core/ParamValidator.h"
 
 WiFiProvisioning wifi;
 PWMManager pwm(PWM_PIN_A, PWM_PIN_B);
 ConfigStore config;
-CoreParams params;
-WebServer* apiServer = nullptr;
-bool restartPending = false;
+AppContext ctx;
 
 String buildDashboard();
 void startAPIServer();
@@ -40,10 +39,10 @@ String buildDashboard() {
          ".sm{text-align:center;margin-top:8px}"
          "</style></head><body><h1>IH</h1><div class=s>"
          "<div class=r><span class=l>Status</span><span class=v id=s>" + String(runStateName(pwm.getState())) + "</span></div>"
-         "<div class=r><span class=l>Freq</span><span class=v id=f>" + String(params.freq, 0) + " Hz</span></div>"
-         "<div class=r><span class=l>Duty</span><span class=v id=d>" + String(pwm.getDuty(), 1) + "% (" + String(params.duty, 1) + "%)</span></div>"
-         "<div class=r><span class=l>DT</span><span class=v id=dt>" + String(params.deadTimeNs, 0) + " ns</span></div>"
-         "<div class=r><span class=l>SS</span><span class=v id=ss>" + String(params.softStartMs) + " ms</span></div>"
+         "<div class=r><span class=l>Freq</span><span class=v id=f>" + String(ctx.params.freq, 0) + " Hz</span></div>"
+         "<div class=r><span class=l>Duty</span><span class=v id=d>" + String(pwm.getDuty(), 1) + "% (" + String(ctx.params.duty, 1) + "%)</span></div>"
+         "<div class=r><span class=l>DT</span><span class=v id=dt>" + String(ctx.params.deadTimeNs, 0) + " ns</span></div>"
+         "<div class=r><span class=l>SS</span><span class=v id=ss>" + String(ctx.params.softStartMs) + " ms</span></div>"
          "<div class=r><span class=l>IP</span><span class=v id=ip>" + wifi.getIP().toString() + "</span></div>"
          "<div class=r><span class=l>RSSI</span><span class=v id=r>" + String(WiFi.RSSI()) + " dBm</span></div>"
          "</div>"
@@ -53,10 +52,10 @@ String buildDashboard() {
          "</div>"
          "<div class=s>"
          "<form action=/set method=GET style=display:flex;flex-direction:column;gap:6px>"
-         "<div class=fr><lb>Freq (Hz)</lb><input name=f type=number value=" + String(params.freq, 0) + "></div>"
-         "<div class=fr><lb>Duty (%)</lb><input name=d type=number step=0.1 value=" + String(params.duty, 1) + "></div>"
-         "<div class=fr><lb>DT (ns)</lb><input name=dt type=number value=" + String(params.deadTimeNs, 0) + "></div>"
-         "<div class=fr><lb>SS (ms)</lb><input name=ss type=number value=" + String(params.softStartMs) + "></div>"
+         "<div class=fr><lb>Freq (Hz)</lb><input name=f type=number value=" + String(ctx.params.freq, 0) + "></div>"
+         "<div class=fr><lb>Duty (%)</lb><input name=d type=number step=0.1 value=" + String(ctx.params.duty, 1) + "></div>"
+         "<div class=fr><lb>DT (ns)</lb><input name=dt type=number value=" + String(ctx.params.deadTimeNs, 0) + "></div>"
+         "<div class=fr><lb>SS (ms)</lb><input name=ss type=number value=" + String(ctx.params.softStartMs) + "></div>"
          "<div class=sm><button class=ba type=submit>Apply</button></div>"
          "</form></div>"
          "<script>"
@@ -81,8 +80,14 @@ void setup() {
     Serial.println();
     Serial.println(F("=== IH v5 ==="));
 
-    params = ParamValidator::clamp(config.load());
-    pwm.begin(params);
+    esp_task_wdt_init(10, true);
+    esp_task_wdt_add(nullptr);
+
+    ctx.params = ParamValidator::clamp(config.load());
+    if (!pwm.begin(ctx.params)) {
+        Serial.println(F("[CRIT] PWM init failed — halting"));
+        while (true) { delay(1000); }
+    }
 
     Serial.printf("[Main] ID: %s\n",
         String((uint32_t)(ESP.getEfuseMac() >> 24), HEX).c_str());
@@ -91,85 +96,85 @@ void setup() {
 }
 
 void loop() {
-    if (restartPending) {
-        delay(500);
-        ESP.restart();
+    if (ctx.isRestartRequested()) {
+        executeRestart();
     }
 
     wifi.handle();
 
-    if (wifi.isProvisioned() && apiServer == nullptr) {
+    if (wifi.isProvisioned() && ctx.apiServer == nullptr) {
         startAPIServer();
-    } else if (!wifi.isProvisioned() && apiServer != nullptr) {
+    } else if (!wifi.isProvisioned() && ctx.apiServer != nullptr) {
         stopAPIServer();
     }
 
-    if (apiServer) {
-        apiServer->handleClient();
+    if (ctx.apiServer) {
+        ctx.apiServer->handleClient();
     }
 
     pwm.softStartTick();
+    esp_task_wdt_reset();
 }
 
 void startAPIServer() {
-    apiServer = new WebServer(80);
+    ctx.apiServer = new WebServer(80);
 
-    apiServer->on("/status", HTTP_GET, []() {
+    ctx.apiServer->on("/status", HTTP_GET, []() {
         String json;
         json.reserve(256);
         json += "{\"running\":";   json += pwm.isRunning() ? "true" : "false";
         json += ",\"softStart\":"; json += pwm.isSoftStarting() ? "true" : "false";
         json += ",\"state\":\"";   json += runStateName(pwm.getState());
-        json += "\",\"freq\":";    json += String(params.freq, 0);
+        json += "\",\"freq\":";    json += String(ctx.params.freq, 0);
         json += ",\"duty\":";      json += String(pwm.getDuty(), 1);
-        json += ",\"dt\":";        json += String(params.deadTimeNs, 0);
-        json += ",\"ss\":";        json += String(params.softStartMs);
-        json += ",\"dutyTarget\":"; json += String(params.duty, 1);
+        json += ",\"dt\":";        json += String(ctx.params.deadTimeNs, 0);
+        json += ",\"ss\":";        json += String(ctx.params.softStartMs);
+        json += ",\"dutyTarget\":"; json += String(ctx.params.duty, 1);
         json += ",\"ip\":\"";      json += wifi.getIP().toString();
         json += "\",\"rssi\":";    json += String(WiFi.RSSI());
         json += "}";
-        apiServer->send(200, "application/json", json);
+        ctx.apiServer->send(200, "application/json", json);
     });
 
-    apiServer->on("/", HTTP_GET, []() {
-        apiServer->send(200, "text/html", buildDashboard());
+    ctx.apiServer->on("/", HTTP_GET, []() {
+        ctx.apiServer->send(200, "text/html", buildDashboard());
     });
 
-    apiServer->on("/start", HTTP_GET, []() {
+    ctx.apiServer->on("/start", HTTP_GET, []() {
         if (!pwm.isRunning())
-            pwm.start(params.duty, params.softStartMs);
-        apiServer->sendHeader("Location", "/", true);
-        apiServer->send(302, "text/plain", "");
+            pwm.start(ctx.params.duty, ctx.params.softStartMs);
+        ctx.apiServer->sendHeader("Location", "/", true);
+        ctx.apiServer->send(302, "text/plain", "");
     });
 
-    apiServer->on("/stop", HTTP_GET, []() {
+    ctx.apiServer->on("/stop", HTTP_GET, []() {
         if (pwm.isRunning())
             pwm.stop();
-        apiServer->sendHeader("Location", "/", true);
-        apiServer->send(302, "text/plain", "");
+        ctx.apiServer->sendHeader("Location", "/", true);
+        ctx.apiServer->send(302, "text/plain", "");
     });
 
-    apiServer->on("/set", HTTP_GET, []() {
-        CoreParams p = params;
-        if (apiServer->hasArg("f"))
-            p.freq = apiServer->arg("f").toFloat();
-        if (apiServer->hasArg("d"))
-            p.duty = apiServer->arg("d").toFloat();
-        if (apiServer->hasArg("dt"))
-            p.deadTimeNs = apiServer->arg("dt").toFloat();
-        if (apiServer->hasArg("ss"))
-            p.softStartMs = apiServer->arg("ss").toInt();
+    ctx.apiServer->on("/set", HTTP_GET, []() {
+        CoreParams p = ctx.params;
+        if (ctx.apiServer->hasArg("f"))
+            p.freq = ctx.apiServer->arg("f").toFloat();
+        if (ctx.apiServer->hasArg("d"))
+            p.duty = ctx.apiServer->arg("d").toFloat();
+        if (ctx.apiServer->hasArg("dt"))
+            p.deadTimeNs = ctx.apiServer->arg("dt").toFloat();
+        if (ctx.apiServer->hasArg("ss"))
+            p.softStartMs = ctx.apiServer->arg("ss").toInt();
         p = ParamValidator::clamp(p);
-        params = p;
-        config.save(params);
-        pwm.setFrequency(params.freq);
-        pwm.setDeadTime(params.deadTimeNs);
-        pwm.setDuty(params.duty);
-        apiServer->sendHeader("Location", "/", true);
-        apiServer->send(302, "text/plain", "");
+        ctx.params = p;
+        config.save(ctx.params);
+        pwm.setFrequency(ctx.params.freq);
+        pwm.setDeadTime(ctx.params.deadTimeNs);
+        pwm.setDuty(ctx.params.duty);
+        ctx.apiServer->sendHeader("Location", "/", true);
+        ctx.apiServer->send(302, "text/plain", "");
     });
 
-    apiServer->on("/wifi-status", HTTP_GET, []() {
+    ctx.apiServer->on("/wifi-status", HTTP_GET, []() {
         String json;
         json.reserve(128);
         json += "{\"state\":\"";
@@ -177,16 +182,16 @@ void startAPIServer() {
         json += "\",\"ip\":\"";   json += wifi.getIP().toString();
         json += "\",\"rssi\":";   json += String(WiFi.RSSI());
         json += "}";
-        apiServer->send(200, "application/json", json);
+        ctx.apiServer->send(200, "application/json", json);
     });
 
-    apiServer->on("/scan", HTTP_GET, []() {
+    ctx.apiServer->on("/scan", HTTP_GET, []() {
         int n = WiFi.scanComplete();
         if (n == -2) {
             WiFi.scanNetworks(true);
-            apiServer->send(200, "application/json", "{\"scanning\":true}");
+            ctx.apiServer->send(200, "application/json", "{\"scanning\":true}");
         } else if (n == -1) {
-            apiServer->send(200, "application/json", "{\"scanning\":true}");
+            ctx.apiServer->send(200, "application/json", "{\"scanning\":true}");
         } else {
             String json = "[";
             for (int i = 0; i < n; i++) {
@@ -203,15 +208,15 @@ void startAPIServer() {
             }
             json += "]";
             WiFi.scanDelete();
-            apiServer->send(200, "application/json", json);
+            ctx.apiServer->send(200, "application/json", json);
         }
     });
 
-    apiServer->on("/connect", HTTP_POST, []() {
-        String ssid = apiServer->arg("ssid").substring(0, 32);
-        String pass = apiServer->arg("pass").substring(0, 64);
+    ctx.apiServer->on("/connect", HTTP_POST, []() {
+        String ssid = ctx.apiServer->arg("ssid").substring(0, 32);
+        String pass = ctx.apiServer->arg("pass").substring(0, 64);
         if (ssid.length() == 0) {
-            apiServer->send(400, "application/json", "{\"ok\":false}");
+            ctx.apiServer->send(400, "application/json", "{\"ok\":false}");
             return;
         }
         Preferences p;
@@ -219,33 +224,33 @@ void startAPIServer() {
         p.putString("ssid", ssid);
         p.putString("pass", pass);
         p.end();
-        apiServer->send(200, "application/json", "{\"ok\":true}");
-        restartPending = true;
+        ctx.apiServer->send(200, "application/json", "{\"ok\":true}");
+        ctx.requestRestart();
     });
 
-    apiServer->on("/reset-wifi", HTTP_POST, []() {
+    ctx.apiServer->on("/reset-wifi", HTTP_POST, []() {
         {
             Preferences p;
             p.begin("ih", false);
             p.clear();
             p.end();
         }
-        apiServer->send(200, "application/json", "{\"ok\":true}");
-        restartPending = true;
+        ctx.apiServer->send(200, "application/json", "{\"ok\":true}");
+        ctx.requestRestart();
     });
 
-    apiServer->onNotFound([]() {
-        apiServer->send(404, "application/json", "{\"error\":\"not found\"}");
+    ctx.apiServer->onNotFound([]() {
+        ctx.apiServer->send(404, "application/json", "{\"error\":\"not found\"}");
     });
 
-    apiServer->begin();
+    ctx.apiServer->begin();
     Serial.printf("[API] server on %s\n", wifi.getIP().toString().c_str());
 }
 
 void stopAPIServer() {
-    if (!apiServer) return;
-    apiServer->stop();
-    delete apiServer;
-    apiServer = nullptr;
+    if (!ctx.apiServer) return;
+    ctx.apiServer->stop();
+    delete ctx.apiServer;
+    ctx.apiServer = nullptr;
     Serial.println(F("[API] server stopped"));
 }
