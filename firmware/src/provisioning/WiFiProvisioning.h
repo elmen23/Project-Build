@@ -5,6 +5,7 @@
 #include <DNSServer.h>
 #include <WebServer.h>
 #include <Preferences.h>
+#include <memory>
 
 #define PROV_AP_SSID_PREFIX "IH-"
 #define PROV_AP_TIMEOUT 180
@@ -24,10 +25,11 @@ private:
         STATE_STA_WAIT,
         STATE_STA_OK,
         STATE_AP,
-        STATE_AP_FAIL,
         STATE_AP_TEST,
         STATE_RESTART
     };
+
+    enum class ScanState : uint8_t { IDLE, SCANNING, DONE };
 
     State _state;
     uint8_t _retries;
@@ -35,18 +37,17 @@ private:
     uint32_t _dispStart;
     String _ssid, _pass;
     String _testSSID, _testPass;
-    uint8_t _scanState;
+    ScanState _scanState;
     String _scanCache;
     bool _testDone;
     bool _testOk;
-    DNSServer* _dns;
-    WebServer* _server;
+    std::unique_ptr<DNSServer> _dns;
+    std::unique_ptr<WebServer> _server;
 
     String _chipId();
     String _apSSID();
     void _connectSTA(const String& ssid, const String& pass);
     void _startAP();
-    void _stopAP();
     void _onRoot();
     void _onSave();
     void _onClear();

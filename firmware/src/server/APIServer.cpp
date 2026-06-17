@@ -7,7 +7,7 @@ APIServer::APIServer(PWMManager& pwm, WiFiProvisioning& wifi, ConfigStore& confi
     : _pwm(pwm), _wifi(wifi), _config(config), _ctx(ctx) {}
 
 void APIServer::start(const IPAddress& ip) {
-    _server = new WebServer(80);
+    _server.reset(new WebServer(80));
 
     _server->on("/status", HTTP_GET, [this]() {
         String json;
@@ -140,8 +140,7 @@ void APIServer::start(const IPAddress& ip) {
 void APIServer::stop() {
     if (!_server) return;
     _server->stop();
-    delete _server;
-    _server = nullptr;
+    _server.reset();
     Serial.println(F("[API] server stopped"));
 }
 

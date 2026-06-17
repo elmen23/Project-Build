@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include <memory>
 #include "hal/PWMManager.h"
 #include "hal/ConfigStore.h"
 #include "core/AppContext.h"
@@ -20,5 +21,5 @@ private:
     WiFiProvisioning& _wifi;
     ConfigStore& _config;
     AppContext& _ctx;
-    WebServer* _server = nullptr;
+    std::unique_ptr<WebServer> _server;
 };

@@ -60,7 +60,6 @@ static const char P_NET_ROW[] PROGMEM =
 
 WiFiProvisioning::WiFiProvisioning()
     : _state(STATE_INIT), _retries(0), _connStart(0), _dispStart(0),
-      _dns(nullptr), _server(nullptr), _scanState(0),
       _testDone(false), _testOk(false) {}
 
 String WiFiProvisioning::_chipId() {
@@ -109,7 +108,6 @@ void WiFiProvisioning::handle() {
         break;
 
     case STATE_AP:
-    case STATE_AP_FAIL:
         _dns->processNextRequest();
         _server->handleClient();
 
@@ -172,8 +170,8 @@ void WiFiProvisioning::_connectSTA(const String& ssid, const String& pass) {
 
 void WiFiProvisioning::_startAP() {
     WiFi.persistent(false);
-    _dns = new DNSServer();
-    _server = new WebServer(80);
+    _dns.reset(new DNSServer());
+    _server.reset(new WebServer(80));
 
     String name = _apSSID();
     Serial.printf("AP: %s\n", name.c_str());
@@ -195,12 +193,7 @@ void WiFiProvisioning::_startAP() {
     _server->begin();
 
     _connStart = millis();
-    _scanState = 0;
-}
-
-void WiFiProvisioning::_stopAP() {
-    if (_dns) { _dns->stop(); delete _dns; _dns = nullptr; }
-    if (_server) { _server->stop(); delete _server; _server = nullptr; }
+    _scanState = ScanState::IDLE;
 }
 
 void WiFiProvisioning::_onRoot() {
@@ -217,25 +210,19 @@ void WiFiProvisioning::_onRoot() {
         _servePage(F("Could not connect. Check password."), true, _scanCache);
         _testDone = false;
         _ssid = _testSSID;
-        _scanState = 0;
+        _scanState = ScanState::IDLE;
         _scanCache = "";
         return;
     }
 
-    if (_state == STATE_AP_FAIL) {
-        _servePage(F("Wrong credentials or network unreachable"), true, "");
-        _state = STATE_AP;
-        return;
-    }
-
-    if (_scanState == 0) {
+    if (_scanState == ScanState::IDLE) {
         WiFi.scanNetworks(true);
-        _scanState = 1;
+        _scanState = ScanState::SCANNING;
         _serveScanningPage();
         return;
     }
 
-    if (_scanState == 1) {
+    if (_scanState == ScanState::SCANNING) {
         int n = WiFi.scanComplete();
         if (n < 0) {
             _serveScanningPage();
@@ -243,11 +230,11 @@ void WiFiProvisioning::_onRoot() {
         }
         _buildScanCache(n);
         WiFi.scanDelete();
-        _scanState = 2;
+        _scanState = ScanState::DONE;
     }
 
     _servePage("", false, _scanCache);
-    _scanState = 0;
+    _scanState = ScanState::IDLE;
 }
 
 void WiFiProvisioning::_onSave() {
