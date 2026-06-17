@@ -1,5 +1,4 @@
 #include <WiFi.h>
-#include <esp_task_wdt.h>
 #include "provisioning/WiFiProvisioning.h"
 #include "hal/PWMManager.h"
 #include "hal/ConfigStore.h"
@@ -19,13 +18,9 @@ void setup() {
     Serial.println();
     Serial.println(F("=== IH v5 ==="));
 
-    esp_task_wdt_init(10, true);
-    esp_task_wdt_add(nullptr);
-
     ctx.params = ParamValidator::clamp(config.load());
     if (!pwm.begin(ctx.params)) {
-        Serial.println(F("[CRIT] PWM init failed — halting"));
-        while (true) { delay(1000); }
+        Serial.println(F("[WARN] PWM init failed — continuing without PWM"));
     }
 
     Serial.printf("[Main] ID: %s\n",
@@ -49,5 +44,4 @@ void loop() {
 
     api.handle();
     pwm.softStartTick();
-    esp_task_wdt_reset();
 }
