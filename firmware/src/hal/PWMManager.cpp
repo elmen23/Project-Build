@@ -24,10 +24,12 @@ bool PWMManager::begin(const CoreParams& params) {
         return false;
     }
 
-    setDeadTime(params.deadTimeNs);
-
     mcpwm_set_duty_type(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, MCPWM_DUTY_MODE_0);
     mcpwm_set_duty_type(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, MCPWM_DUTY_MODE_0);
+    mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, 0.0f);
+    mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, 0.0f);
+
+    setDeadTime(params.deadTimeNs);
 
     _lastDuty = 0.0f;
     _state = RunState::IDLE;

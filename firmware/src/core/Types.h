@@ -10,10 +10,10 @@ enum class RunState : uint8_t {
 };
 
 struct CoreParams {
-    float freq = 100000.0f;
+    float freq = 25000.0f;
     float duty = 50.0f;
     float deadTimeNs = 500.0f;
-    uint32_t softStartMs = 3000;
+    uint32_t softStartMs = 1000;
     uint32_t runTimeoutSec = 1800;
     bool enableTimeout = true;
 
