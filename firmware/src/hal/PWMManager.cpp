@@ -65,7 +65,6 @@ void PWMManager::stop() {
     mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, 0.0f);
     mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, 0.0f);
     mcpwm_stop(MCPWM_UNIT_0, MCPWM_TIMER_0);
-
     Serial.println("[PWM] stop");
 }
 

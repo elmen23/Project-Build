@@ -48,7 +48,6 @@ private:
 
     DNSServer* _dns;
     WebServer* _server;
-    Preferences _prefs;
 
     String _chipId() {
         return String((uint32_t)(ESP.getEfuseMac() >> 24), HEX);
@@ -133,15 +132,6 @@ static const char P_NET_ROW[] PROGMEM =
     "<span class=r>%s</span></div>";
 
 void WiFiProvisioning::begin() {
-    Serial.begin(115200);
-    delay(200);
-    Serial.println();
-    Serial.println(F("=== IH v5 ==="));
-    Serial.print(F("ID: "));
-    Serial.println(_chipId());
-
-    _prefs.begin("ih", false);
-
     if (_loadCreds()) {
         Serial.print(F("Saved: "));
         Serial.println(_ssid);
@@ -241,6 +231,7 @@ void WiFiProvisioning::_connectSTA(const String& ssid, const String& pass) {
 }
 
 void WiFiProvisioning::_startAP() {
+    WiFi.persistent(false);
     _dns = new DNSServer();
     _server = new WebServer(80);
 
@@ -320,8 +311,8 @@ void WiFiProvisioning::_onRoot() {
 }
 
 void WiFiProvisioning::_onSave() {
-    _testSSID = _server->arg("ssid");
-    _testPass = _server->arg("pass");
+    _testSSID = _server->arg("ssid").substring(0, 32);
+    _testPass = _server->arg("pass").substring(0, 64);
 
     if (_testSSID.length() == 0) {
         _servePage(F("Enter a network name"), true);
@@ -338,7 +329,10 @@ void WiFiProvisioning::_onSave() {
 }
 
 void WiFiProvisioning::_onClear() {
-    _prefs.clear();
+    Preferences prefs;
+    prefs.begin("ih", false);
+    prefs.clear();
+    prefs.end();
     _ssid = "";
     _pass = "";
     Serial.println(F("Cleared"));
@@ -355,7 +349,6 @@ void WiFiProvisioning::_onNotFound() {
     _server->sendHeader("Location",
         String(F("http://")) + WiFi.softAPIP().toString(), true);
     _server->send(302, "text/plain", "");
-    _server->client().stop();
 }
 
 void WiFiProvisioning::_servePage(const String& msg, bool isErr, const String& scanHtml) {
@@ -507,13 +500,19 @@ String WiFiProvisioning::_esc(const String& s) {
 }
 
 bool WiFiProvisioning::_loadCreds() {
-    _ssid = _prefs.getString("ssid", "");
-    _pass = _prefs.getString("pass", "");
+    Preferences prefs;
+    prefs.begin("ih", true);
+    _ssid = prefs.getString("ssid", "");
+    _pass = prefs.getString("pass", "");
+    prefs.end();
     return _ssid.length() > 0;
 }
 
 void WiFiProvisioning::_saveCreds() {
-    _prefs.putString("ssid", _ssid);
-    _prefs.putString("pass", _pass);
+    Preferences prefs;
+    prefs.begin("ih", false);
+    prefs.putString("ssid", _ssid);
+    prefs.putString("pass", _pass);
+    prefs.end();
     Serial.println(F("Saved"));
 }

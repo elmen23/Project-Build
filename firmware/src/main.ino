@@ -1,3 +1,6 @@
+#include <WebServer.h>
+#include <Preferences.h>
+#include <WiFi.h>
 #include "provisioning/WiFiProvisioning.h"
 #include "hal/PWMManager.h"
 #include "hal/ConfigStore.h"
@@ -16,13 +19,7 @@ void startAPIServer();
 void stopAPIServer();
 
 String buildDashboard() {
-    String s, stateStr;
-    switch (pwm.getState()) {
-        case RunState::IDLE:       stateStr = "IDLE"; break;
-        case RunState::SOFT_START: stateStr = "SOFT START"; break;
-        case RunState::RUNNING:    stateStr = "RUNNING"; break;
-        case RunState::STOPPING:   stateStr = "STOPPING"; break;
-    }
+    String s;
     s.reserve(1024);
     s += "<!DOCTYPE html><html><head><meta charset=UTF-8>"
          "<meta name=viewport content='width=device-width,initial-scale=1'>"
@@ -42,7 +39,7 @@ String buildDashboard() {
          ".fr lb{width:100px;color:#888}"
          ".sm{text-align:center;margin-top:8px}"
          "</style></head><body><h1>IH</h1><div class=s>"
-         "<div class=r><span class=l>Status</span><span class=v id=s>" + stateStr + "</span></div>"
+         "<div class=r><span class=l>Status</span><span class=v id=s>" + String(runStateName(pwm.getState())) + "</span></div>"
          "<div class=r><span class=l>Freq</span><span class=v id=f>" + String(params.freq, 0) + " Hz</span></div>"
          "<div class=r><span class=l>Duty</span><span class=v id=d>" + String(pwm.getDuty(), 1) + "% (" + String(params.duty, 1) + "%)</span></div>"
          "<div class=r><span class=l>DT</span><span class=v id=dt>" + String(params.deadTimeNs, 0) + " ns</span></div>"
@@ -84,7 +81,6 @@ void setup() {
     Serial.println();
     Serial.println(F("=== IH v5 ==="));
 
-    config.begin();
     params = ParamValidator::clamp(config.load());
     pwm.begin(params);
 
@@ -121,16 +117,9 @@ void startAPIServer() {
     apiServer->on("/status", HTTP_GET, []() {
         String json;
         json.reserve(256);
-        String stateStr;
-        switch (pwm.getState()) {
-            case RunState::IDLE:       stateStr = "IDLE"; break;
-            case RunState::SOFT_START: stateStr = "SOFT_START"; break;
-            case RunState::RUNNING:    stateStr = "RUNNING"; break;
-            case RunState::STOPPING:   stateStr = "STOPPING"; break;
-        }
         json += "{\"running\":";   json += pwm.isRunning() ? "true" : "false";
         json += ",\"softStart\":"; json += pwm.isSoftStarting() ? "true" : "false";
-        json += ",\"state\":\"";   json += stateStr;
+        json += ",\"state\":\"";   json += runStateName(pwm.getState());
         json += "\",\"freq\":";    json += String(params.freq, 0);
         json += ",\"duty\":";      json += String(pwm.getDuty(), 1);
         json += ",\"dt\":";        json += String(params.deadTimeNs, 0);
@@ -219,8 +208,8 @@ void startAPIServer() {
     });
 
     apiServer->on("/connect", HTTP_POST, []() {
-        String ssid = apiServer->arg("ssid");
-        String pass = apiServer->arg("pass");
+        String ssid = apiServer->arg("ssid").substring(0, 32);
+        String pass = apiServer->arg("pass").substring(0, 64);
         if (ssid.length() == 0) {
             apiServer->send(400, "application/json", "{\"ok\":false}");
             return;
@@ -235,10 +224,12 @@ void startAPIServer() {
     });
 
     apiServer->on("/reset-wifi", HTTP_POST, []() {
-        Preferences p;
-        p.begin("ih", false);
-        p.clear();
-        p.end();
+        {
+            Preferences p;
+            p.begin("ih", false);
+            p.clear();
+            p.end();
+        }
         apiServer->send(200, "application/json", "{\"ok\":true}");
         restartPending = true;
     });

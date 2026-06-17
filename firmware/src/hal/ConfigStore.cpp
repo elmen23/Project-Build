@@ -1,43 +1,25 @@
 #include "ConfigStore.h"
 
-void ConfigStore::begin() {
-    _prefs.begin(NS, false);
-}
-
 CoreParams ConfigStore::load() {
+    Preferences prefs;
+    prefs.begin(NS, true);
     CoreParams p;
     CoreParams defs;
-    p.freq = _prefs.getFloat(K_FREQ, defs.freq);
-    p.duty = _prefs.getFloat(K_DUTY, defs.duty);
-    p.deadTimeNs = _prefs.getFloat(K_DT, defs.deadTimeNs);
-    p.softStartMs = _prefs.getUInt(K_SS, defs.softStartMs);
+    p.freq = prefs.getFloat(K_FREQ, defs.freq);
+    p.duty = prefs.getFloat(K_DUTY, defs.duty);
+    p.deadTimeNs = prefs.getFloat(K_DT, defs.deadTimeNs);
+    p.softStartMs = prefs.getUInt(K_SS, defs.softStartMs);
+    prefs.end();
     return p;
 }
 
 void ConfigStore::save(const CoreParams& p) {
-    _prefs.putFloat(K_FREQ, p.freq);
-    _prefs.putFloat(K_DUTY, p.duty);
-    _prefs.putFloat(K_DT, p.deadTimeNs);
-    _prefs.putUInt(K_SS, p.softStartMs);
+    Preferences prefs;
+    prefs.begin(NS, false);
+    prefs.putFloat(K_FREQ, p.freq);
+    prefs.putFloat(K_DUTY, p.duty);
+    prefs.putFloat(K_DT, p.deadTimeNs);
+    prefs.putUInt(K_SS, p.softStartMs);
+    prefs.end();
     Serial.println(F("[Config] saved"));
-}
-
-void ConfigStore::reset() {
-    _prefs.clear();
-    Serial.println(F("[Config] reset"));
-}
-
-String ConfigStore::toJSON(const CoreParams& p) const {
-    String j;
-    j.reserve(128);
-    j += "{\"freq\":";
-    j += String(p.freq, 0);
-    j += ",\"duty\":";
-    j += String(p.duty, 1);
-    j += ",\"dt\":";
-    j += String(p.deadTimeNs, 0);
-    j += ",\"ss\":";
-    j += String(p.softStartMs);
-    j += "}";
-    return j;
 }

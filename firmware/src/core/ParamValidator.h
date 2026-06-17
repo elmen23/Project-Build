@@ -4,23 +4,18 @@
 
 class ParamValidator {
 public:
-    static CoreParams defaults() {
-        return CoreParams();
-    }
-
     static CoreParams clamp(const CoreParams& p) {
         CoreParams r = p;
-        CoreParams def;
         if (isnan(r.freq) || isinf(r.freq))
-            r.freq = def.freq;
+            r.freq = CoreParams::defaults().freq;
         else
             r.freq = constrain(r.freq, (float)CoreParams::FREQ_MIN, (float)CoreParams::FREQ_MAX);
         if (isnan(r.duty) || isinf(r.duty))
-            r.duty = def.duty;
+            r.duty = CoreParams::defaults().duty;
         else
             r.duty = constrain(r.duty, CoreParams::DUTY_MIN, CoreParams::DUTY_MAX);
         if (isnan(r.deadTimeNs) || isinf(r.deadTimeNs))
-            r.deadTimeNs = def.deadTimeNs;
+            r.deadTimeNs = CoreParams::defaults().deadTimeNs;
         else
             r.deadTimeNs = constrain(r.deadTimeNs, CoreParams::DT_MIN, CoreParams::DT_MAX);
         r.softStartMs = constrain(r.softStartMs, CoreParams::SS_MIN, CoreParams::SS_MAX);
