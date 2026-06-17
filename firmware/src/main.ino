@@ -11,104 +11,60 @@ CoreParams params;
 WebServer* apiServer = nullptr;
 bool restartPending = false;
 
-static const char DASHBOARD_HTML[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>IH</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:monospace;padding:20px;background:#111;color:#0f0}
-h1{font-size:20px;margin-bottom:16px}
-.s{margin-bottom:20px;padding:12px;border:1px solid #333}
-.r{display:flex;justify-content:space-between;padding:4px 0}
-.l{color:#888}
-.v{color:#0f0}
-button{padding:8px 24px;font-size:16px;cursor:pointer;border:0;border-radius:4px}
-button:hover{filter:brightness(1.25)}
-button:active{filter:brightness(0.75)}
-.bs{background:#0a0;color:#fff}
-.bp{background:#a00;color:#fff}
-button:disabled{opacity:.4}
-button:disabled:hover{filter:none}
-input{background:#000;border:1px solid #333;color:#0f0;padding:6px;width:80px;text-align:center;font-family:monospace}
-.fr{display:flex;gap:8px;align-items:center;margin:4px 0}
-.fr lb{width:100px;color:#888}
-.ba{background:#00a;color:#fff;padding:6px 16px;border:0;border-radius:4px;cursor:pointer}
-.t{padding:2px 8px;border-radius:3px;font-weight:bold}
-.ti{background:#333;color:#888}
-.ts{background:#aa0;color:#000}
-.tr{background:#0a0;color:#fff}
-.to{background:#a00;color:#fff}
-</style>
-</head>
-<body>
-<h1>IH Control</h1>
-<div class="s" id="st">
-<div class="r"><span class="l">Status</span><span id="s" class="v">--</span></div>
-<div class="r"><span class="l">Freq</span><span id="f" class="v">-- Hz</span></div>
-<div class="r"><span class="l">Duty</span><span id="d" class="v">-- %</span></div>
-<div class="r"><span class="l">Dead Time</span><span id="dt" class="v">-- ns</span></div>
-<div class="r"><span class="l">Soft Start</span><span id="ss" class="v">-- ms</span></div>
-</div>
-<div class="s">
-<div class="r"><span class="l">IP</span><span id="ip" class="v">--</span></div>
-<div class="r"><span class="l">RSSI</span><span id="rssi" class="v">-- dBm</span></div>
-</div>
-<div class="s" style="text-align:center">
-<button id="b1" class="bs" onclick="go(1)">Start</button>
-<button id="b2" class="bp" onclick="go(0)">Stop</button>
-</div>
-<div class="s">
-<h2>Params</h2>
-<div class="fr"><lb>Freq (Hz)</lb><input id="i0" type="number" min="10000" max="30000"><button class="ba" onclick="ap()">Set</button></div>
-<div class="fr"><lb>Duty (%)</lb><input id="i1" type="number" min="5" max="95" step="0.1"></div>
-<div class="fr"><lb>DT (ns)</lb><input id="i2" type="number" min="100" max="5000"></div>
- <div class="fr"><lb>SS (ms)</lb><input id="i3" type="number" min="500" max="10000"></div>
- <div id="msg" style="text-align:center;color:#aa0;min-height:1.5em;font-size:14px"></div>
-</div>
-<script>
-function $(i){return document.getElementById(i)}
-function tag(s){
- if(s=='IDLE') return '<b class="t ti">IDLE</b>';
- if(s=='SOFT_START') return '<b class="t ts">SOFT START</b>';
- if(s=='RUNNING') return '<b class="t tr">RUNNING</b>';
- if(s=='STOPPING') return '<b class="t to">STOPPING</b>';
- return s;
-}
-function poll(){
- fetch('/status').then(r=>r.json()).then(d=>{
-  $('s').innerHTML=tag(d.state);
-  $('f').textContent=d.freq+' Hz';
-  $('d').innerHTML=d.duty+'% <span style=color:#888>('+d.dutyTarget+'%)</span>';
-  $('dt').textContent=d.dt+' ns';
-  $('ss').textContent=d.ss+' ms';
-  $('ip').textContent=d.ip;
-  $('rssi').textContent=d.rssi+' dBm';
-  $('b1').disabled=d.running;
-  $('b2').disabled=!d.running;
- }).catch(function(){});
-}
-function go(v){
- fetch(v?'/start':'/stop').then(r=>r.json()).then(function(d){
-  fb(d.ok?(v?'Started':'Stopped'):(d.msg||'Failed'));poll();
- }).catch(function(){fb('Err')});
-}
-function ap(){
- fetch('/set?f='+$('i0').value+'&d='+$('i1').value+'&dt='+$('i2').value+'&ss='+$('i3').value).then(function(){fb('Saved');poll();}).catch(function(){fb('Err')});
-}
-function fb(m){$('msg').textContent=m;setTimeout(function(){$('msg').textContent='';},2000);}
-fetch('/status').then(r=>r.json()).then(function(d){$('i0').value=d.freq;$('i1').value=d.dutyTarget;$('i2').value=d.dt;$('i3').value=d.ss;}).catch(function(){});
-setInterval(poll,1000);poll();
-</script>
-</body>
-</html>
-)rawliteral";
-
+String buildDashboard();
 void startAPIServer();
 void stopAPIServer();
+
+String buildDashboard() {
+    String s, stateStr;
+    switch (pwm.getState()) {
+        case RunState::IDLE:       stateStr = "IDLE"; break;
+        case RunState::SOFT_START: stateStr = "SOFT START"; break;
+        case RunState::RUNNING:    stateStr = "RUNNING"; break;
+        case RunState::STOPPING:   stateStr = "STOPPING"; break;
+    }
+    s.reserve(1024);
+    s += "<!DOCTYPE html><html><head><meta charset=UTF-8>"
+         "<meta name=viewport content='width=device-width,initial-scale=1'>"
+         "<meta http-equiv=refresh content='3'>"
+         "<title>IH</title><style>"
+         "*{box-sizing:border-box;margin:0;padding:0}"
+         "body{font-family:monospace;padding:20px;background:#111;color:#0f0}"
+         "a{text-decoration:none}"
+         ".s{margin-bottom:16px;padding:12px;border:1px solid #333}"
+         ".r{display:flex;justify-content:space-between;padding:4px 0}"
+         ".l{color:#888}.v{color:#0f0}"
+         "button{padding:8px 24px;font-size:16px;cursor:pointer;border:0;border-radius:4px}"
+         ".bs{background:#0a0;color:#fff}"
+         ".bp{background:#a00;color:#fff}"
+         ".ba{background:#00a;color:#fff;padding:6px 16px;border:0;border-radius:4px}"
+         "input{background:#000;border:1px solid #333;color:#0f0;padding:6px;width:80px}"
+         ".fr{display:flex;gap:8px;align-items:center;margin:4px 0}"
+         ".fr lb{width:100px;color:#888}"
+         ".sm{text-align:center;margin-top:8px}"
+         "</style></head><body><h1>IH</h1><div class=s>"
+         "<div class=r><span class=l>Status</span><span class=v>" + stateStr + "</span></div>"
+         "<div class=r><span class=l>Freq</span><span class=v>" + String(params.freq, 0) + " Hz</span></div>"
+         "<div class=r><span class=l>Duty</span><span class=v>" + String(pwm.getDuty(), 1) + "% (" + String(params.duty, 1) + "%)</span></div>"
+         "<div class=r><span class=l>DT</span><span class=v>" + String(params.deadTimeNs, 0) + " ns</span></div>"
+         "<div class=r><span class=l>SS</span><span class=v>" + String(params.softStartMs) + " ms</span></div>"
+         "<div class=r><span class=l>IP</span><span class=v>" + wifi.getIP().toString() + "</span></div>"
+         "<div class=r><span class=l>RSSI</span><span class=v>" + String(WiFi.RSSI()) + " dBm</span></div>"
+         "</div>"
+         "<div class=s style=text-align:center>"
+         "<a href=/start><button class=bs>Start</button></a> "
+         "<a href=/stop><button class=bp>Stop</button></a>"
+         "</div>"
+         "<div class=s>"
+         "<form action=/set method=GET style=display:flex;flex-direction:column;gap:6px>"
+         "<div class=fr><lb>Freq (Hz)</lb><input name=f type=number value=" + String(params.freq, 0) + "></div>"
+         "<div class=fr><lb>Duty (%)</lb><input name=d type=number step=0.1 value=" + String(params.duty, 1) + "></div>"
+         "<div class=fr><lb>DT (ns)</lb><input name=dt type=number value=" + String(params.deadTimeNs, 0) + "></div>"
+         "<div class=fr><lb>SS (ms)</lb><input name=ss type=number value=" + String(params.softStartMs) + "></div>"
+         "<div class=sm><button class=ba type=submit>Apply</button></div>"
+         "</form></div></body></html>";
+    return s;
+}
 
 void setup() {
     Serial.begin(115200);
@@ -175,26 +131,25 @@ void startAPIServer() {
     });
 
     apiServer->on("/", HTTP_GET, []() {
-        apiServer->send_P(200, "text/html", DASHBOARD_HTML);
+        apiServer->send(200, "text/html", buildDashboard());
     });
 
     apiServer->on("/start", HTTP_GET, []() {
-        if (pwm.isRunning()) {
-            apiServer->send(200, "application/json", "{\"ok\":false,\"msg\":\"already running\"}");
-            return;
-        }
-        pwm.start(params.duty, params.softStartMs);
-        apiServer->send(200, "application/json", "{\"ok\":true}");
+        if (!pwm.isRunning())
+            pwm.start(params.duty, params.softStartMs);
+        apiServer->sendHeader("Location", "/", true);
+        apiServer->send(302, "text/plain", "");
     });
 
     apiServer->on("/stop", HTTP_GET, []() {
-        pwm.stop();
-        apiServer->send(200, "application/json", "{\"ok\":true}");
+        if (pwm.isRunning())
+            pwm.stop();
+        apiServer->sendHeader("Location", "/", true);
+        apiServer->send(302, "text/plain", "");
     });
 
     apiServer->on("/set", HTTP_GET, []() {
         CoreParams p = params;
-
         if (apiServer->hasArg("f"))
             p.freq = apiServer->arg("f").toFloat();
         if (apiServer->hasArg("d"))
@@ -203,17 +158,14 @@ void startAPIServer() {
             p.deadTimeNs = apiServer->arg("dt").toFloat();
         if (apiServer->hasArg("ss"))
             p.softStartMs = apiServer->arg("ss").toInt();
-
         p = ParamValidator::clamp(p);
         params = p;
         config.save(params);
-
         pwm.setFrequency(params.freq);
         pwm.setDeadTime(params.deadTimeNs);
         pwm.setDuty(params.duty);
-
-        String json = config.toJSON(params);
-        apiServer->send(200, "application/json", json);
+        apiServer->sendHeader("Location", "/", true);
+        apiServer->send(302, "text/plain", "");
     });
 
     apiServer->on("/wifi-status", HTTP_GET, []() {
