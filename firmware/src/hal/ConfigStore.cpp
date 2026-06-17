@@ -6,10 +6,11 @@ void ConfigStore::begin() {
 
 CoreParams ConfigStore::load() {
     CoreParams p;
-    p.freq = _prefs.getFloat(K_FREQ, 100000.0f);
-    p.duty = _prefs.getFloat(K_DUTY, 50.0f);
-    p.deadTimeNs = _prefs.getFloat(K_DT, 500.0f);
-    p.softStartMs = _prefs.getUInt(K_SS, 3000);
+    CoreParams defs;
+    p.freq = _prefs.getFloat(K_FREQ, defs.freq);
+    p.duty = _prefs.getFloat(K_DUTY, defs.duty);
+    p.deadTimeNs = _prefs.getFloat(K_DT, defs.deadTimeNs);
+    p.softStartMs = _prefs.getUInt(K_SS, defs.softStartMs);
     return p;
 }
 

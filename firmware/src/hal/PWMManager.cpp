@@ -97,6 +97,7 @@ void PWMManager::setDuty(float pct) {
         _ssTargetDuty = _lastDuty;
         return;
     }
+    if (!_running) return;
     mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, _lastDuty);
     mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, _lastDuty);
 }

@@ -63,7 +63,8 @@ input{background:#000;border:1px solid #333;color:#0f0;padding:6px;width:80px;te
 <div class="fr"><lb>Freq (Hz)</lb><input id="i0" type="number" min="10000" max="30000"><button class="ba" onclick="ap()">Set</button></div>
 <div class="fr"><lb>Duty (%)</lb><input id="i1" type="number" min="5" max="95" step="0.1"></div>
 <div class="fr"><lb>DT (ns)</lb><input id="i2" type="number" min="100" max="5000"></div>
-<div class="fr"><lb>SS (ms)</lb><input id="i3" type="number" min="500" max="10000"></div>
+ <div class="fr"><lb>SS (ms)</lb><input id="i3" type="number" min="500" max="10000"></div>
+ <div id="msg" style="text-align:center;color:#aa0;min-height:1.5em;font-size:14px"></div>
 </div>
 <script>
 function $(i){return document.getElementById(i)}
@@ -85,11 +86,20 @@ function poll(){
   $('rssi').textContent=d.rssi+' dBm';
   $('b1').disabled=d.running;
   $('b2').disabled=!d.running;
-  $('i0').value=d.freq;$('i1').value=d.duty;$('i2').value=d.dt;$('i3').value=d.ss;
  }).catch(function(){});
 }
-function go(v){fetch(v?'/start':'/stop').then(r=>r.json()).then(function(d){if(d.ok)poll()});}
-function ap(){fetch('/set?f='+$('i0').value+'&d='+$('i1').value+'&dt='+$('i2').value+'&ss='+$('i3').value).then(r=>r.json()).then(function(){poll()});}
+function go(v){
+ fetch(v?'/start':'/stop').then(r=>r.json()).then(function(d){
+  fb(d.ok?(v?'Started':'Stopped'):(d.msg||'Error'));poll();
+ }).catch(function(){fb('Failed')});
+}
+function ap(){
+ fetch('/set?f='+$('i0').value+'&d='+$('i1').value+'&dt='+$('i2').value+'&ss='+$('i3').value).then(r=>r.json()).then(function(d){
+  fb('Saved');$('i1').value=d.duty;poll();
+ }).catch(function(){fb('Failed')});
+}
+function fb(m){$('msg').textContent=m;setTimeout(function(){$('msg').textContent='';},2000);}
+fetch('/status').then(r=>r.json()).then(function(d){$('i0').value=d.freq;$('i1').value=d.dutyTarget;$('i2').value=d.dt;$('i3').value=d.ss;}).catch(function(){});
 setInterval(poll,2500);poll();
 </script>
 </body>
@@ -199,8 +209,7 @@ void startAPIServer() {
 
         pwm.setFrequency(params.freq);
         pwm.setDeadTime(params.deadTimeNs);
-        if (pwm.isRunning())
-            pwm.setDuty(params.duty);
+        pwm.setDuty(params.duty);
 
         String json = config.toJSON(params);
         apiServer->send(200, "application/json", json);
