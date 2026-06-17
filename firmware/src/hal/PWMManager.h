@@ -16,7 +16,7 @@ public:
     PWMManager& operator=(const PWMManager&) = delete;
 
     bool begin(const CoreParams& params);
-    void start(float dutyPct, uint32_t softStartMs);
+    void start(uint32_t softStartMs);
     void stop();
     void softStartTick();
 
@@ -25,7 +25,6 @@ public:
     RunState getState() const { return _state; }
     float getDuty() const { return _lastDuty; }
 
-    void setDuty(float pct);
     void setFrequency(float hz);
     void setDeadTime(float ns);
 

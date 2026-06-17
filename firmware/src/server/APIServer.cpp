@@ -19,7 +19,6 @@ void APIServer::start(const IPAddress& ip) {
         json += ",\"duty\":";      json += String(_pwm.getDuty(), 1);
         json += ",\"dt\":";        json += String(_ctx.params.deadTimeNs, 0);
         json += ",\"ss\":";        json += String(_ctx.params.softStartMs);
-        json += ",\"dutyTarget\":"; json += String(_ctx.params.duty, 1);
         json += ",\"ip\":\"";      json += _wifi.getIP().toString();
         json += "\",\"rssi\":";    json += String(WiFi.RSSI());
         json += "}";
@@ -32,7 +31,7 @@ void APIServer::start(const IPAddress& ip) {
 
     _server->on("/start", HTTP_GET, [this]() {
         if (!_pwm.isRunning())
-            _pwm.start(_ctx.params.duty, _ctx.params.softStartMs);
+            _pwm.start(_ctx.params.softStartMs);
         _server->sendHeader("Location", "/", true);
         _server->send(302, "text/plain", "");
     });
@@ -48,8 +47,6 @@ void APIServer::start(const IPAddress& ip) {
         CoreParams p = _ctx.params;
         if (_server->hasArg("f"))
             p.freq = _server->arg("f").toFloat();
-        if (_server->hasArg("d"))
-            p.duty = _server->arg("d").toFloat();
         if (_server->hasArg("dt"))
             p.deadTimeNs = _server->arg("dt").toFloat();
         if (_server->hasArg("ss"))
@@ -59,7 +56,6 @@ void APIServer::start(const IPAddress& ip) {
         _config.save(_ctx.params);
         _pwm.setFrequency(_ctx.params.freq);
         _pwm.setDeadTime(_ctx.params.deadTimeNs);
-        _pwm.setDuty(_ctx.params.duty);
         _server->sendHeader("Location", "/", true);
         _server->send(302, "text/plain", "");
     });

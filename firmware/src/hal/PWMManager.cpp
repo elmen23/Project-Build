@@ -37,7 +37,7 @@ bool PWMManager::begin(const CoreParams& params) {
     return true;
 }
 
-void PWMManager::start(float dutyPct, uint32_t softStartMs) {
+void PWMManager::start(uint32_t softStartMs) {
     if (_running) return;
 
     _running = true;
@@ -45,7 +45,7 @@ void PWMManager::start(float dutyPct, uint32_t softStartMs) {
     _state = RunState::SOFT_START;
     _ssStart = millis();
     _ssDuration = softStartMs;
-    _ssTargetDuty = constrain(dutyPct, 0.0f, 100.0f);
+    _ssTargetDuty = 50.0f;
     _lastDuty = 0.0f;
 
     mcpwm_start(MCPWM_UNIT_0, MCPWM_TIMER_0);
@@ -88,17 +88,6 @@ void PWMManager::softStartTick() {
         mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, _lastDuty);
         mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, _lastDuty);
     }
-}
-
-void PWMManager::setDuty(float pct) {
-    _lastDuty = constrain(pct, 0.0f, 100.0f);
-    if (_softStarting) {
-        _ssTargetDuty = _lastDuty;
-        return;
-    }
-    if (!_running) return;
-    mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, _lastDuty);
-    mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, _lastDuty);
 }
 
 void PWMManager::setFrequency(float hz) {

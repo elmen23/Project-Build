@@ -29,9 +29,7 @@ String buildDashboard(PWMManager& pwm, AppContext& ctx, WiFiProvisioning& wifi) 
     s += F(" Hz</span></div>");
     s += F("<div class=r><span class=l>Duty</span><span class=v id=d>");
     s += String(pwm.getDuty(), 1);
-    s += F("% (");
-    s += String(ctx.params.duty, 1);
-    s += F("%)</span></div>");
+    s += F("%</span></div>");
     s += F("<div class=r><span class=l>DT</span><span class=v id=dt>");
     s += String(ctx.params.deadTimeNs, 0);
     s += F(" ns</span></div>");
@@ -54,9 +52,6 @@ String buildDashboard(PWMManager& pwm, AppContext& ctx, WiFiProvisioning& wifi) 
     s += F("<div class=fr><lb>Freq (Hz)</lb><input name=f type=number value=");
     s += String(ctx.params.freq, 0);
     s += F("></div>");
-    s += F("<div class=fr><lb>Duty (%)</lb><input name=d type=number step=0.1 value=");
-    s += String(ctx.params.duty, 1);
-    s += F("></div>");
     s += F("<div class=fr><lb>DT (ns)</lb><input name=dt type=number value=");
     s += String(ctx.params.deadTimeNs, 0);
     s += F("></div>");
@@ -69,7 +64,7 @@ String buildDashboard(PWMManager& pwm, AppContext& ctx, WiFiProvisioning& wifi) 
            "function p(){fetch('/status').then(r=>r.json()).then(d=>{"
            "document.getElementById('s').innerText=d.state;"
            "document.getElementById('f').innerText=d.freq+' Hz';"
-           "document.getElementById('d').innerText=d.duty+'% ('+d.dutyTarget+'%)';"
+           "document.getElementById('d').innerText=d.duty+'%';"
            "document.getElementById('dt').innerText=d.dt+' ns';"
            "document.getElementById('ss').innerText=d.ss+' ms';"
            "document.getElementById('ip').innerText=d.ip;"
