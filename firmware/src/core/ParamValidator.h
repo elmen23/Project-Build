@@ -10,14 +10,20 @@ public:
 
     static CoreParams clamp(const CoreParams& p) {
         CoreParams r = p;
-        if (r.freq < CoreParams::FREQ_MIN || r.freq > CoreParams::FREQ_MAX || isnan(r.freq) || isinf(r.freq))
-            r.freq = 100000.0f;
-        if (r.duty < CoreParams::DUTY_MIN || r.duty > CoreParams::DUTY_MAX || isnan(r.duty) || isinf(r.duty))
-            r.duty = 50.0f;
-        if (r.deadTimeNs < CoreParams::DT_MIN || r.deadTimeNs > CoreParams::DT_MAX || isnan(r.deadTimeNs) || isinf(r.deadTimeNs))
-            r.deadTimeNs = 500.0f;
-        if (r.softStartMs < CoreParams::SS_MIN || r.softStartMs > CoreParams::SS_MAX)
-            r.softStartMs = 3000;
+        CoreParams def;
+        if (isnan(r.freq) || isinf(r.freq))
+            r.freq = def.freq;
+        else
+            r.freq = constrain(r.freq, (float)CoreParams::FREQ_MIN, (float)CoreParams::FREQ_MAX);
+        if (isnan(r.duty) || isinf(r.duty))
+            r.duty = def.duty;
+        else
+            r.duty = constrain(r.duty, CoreParams::DUTY_MIN, CoreParams::DUTY_MAX);
+        if (isnan(r.deadTimeNs) || isinf(r.deadTimeNs))
+            r.deadTimeNs = def.deadTimeNs;
+        else
+            r.deadTimeNs = constrain(r.deadTimeNs, CoreParams::DT_MIN, CoreParams::DT_MAX);
+        r.softStartMs = constrain(r.softStartMs, CoreParams::SS_MIN, CoreParams::SS_MAX);
         return r;
     }
 

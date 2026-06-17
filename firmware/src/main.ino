@@ -27,9 +27,12 @@ h1{font-size:20px;margin-bottom:16px}
 .l{color:#888}
 .v{color:#0f0}
 button{padding:8px 24px;font-size:16px;cursor:pointer;border:0;border-radius:4px}
+button:hover{filter:brightness(1.25)}
+button:active{filter:brightness(0.75)}
 .bs{background:#0a0;color:#fff}
 .bp{background:#a00;color:#fff}
 button:disabled{opacity:.4}
+button:disabled:hover{filter:none}
 input{background:#000;border:1px solid #333;color:#0f0;padding:6px;width:80px;text-align:center;font-family:monospace}
 .fr{display:flex;gap:8px;align-items:center;margin:4px 0}
 .fr lb{width:100px;color:#888}
@@ -79,7 +82,7 @@ function poll(){
  fetch('/status').then(r=>r.json()).then(d=>{
   $('s').innerHTML=tag(d.state);
   $('f').textContent=d.freq+' Hz';
-  $('d').textContent=d.duty+'%';
+  $('d').innerHTML=d.duty+'% <span style=color:#888>('+d.dutyTarget+'%)</span>';
   $('dt').textContent=d.dt+' ns';
   $('ss').textContent=d.ss+' ms';
   $('ip').textContent=d.ip;
@@ -90,17 +93,15 @@ function poll(){
 }
 function go(v){
  fetch(v?'/start':'/stop').then(r=>r.json()).then(function(d){
-  fb(d.ok?(v?'Started':'Stopped'):(d.msg||'Error'));poll();
- }).catch(function(){fb('Failed')});
+  fb(d.ok?(v?'Started':'Stopped'):(d.msg||'Failed'));poll();
+ }).catch(function(){fb('Err')});
 }
 function ap(){
- fetch('/set?f='+$('i0').value+'&d='+$('i1').value+'&dt='+$('i2').value+'&ss='+$('i3').value).then(r=>r.json()).then(function(d){
-  fb('Saved');$('i1').value=d.duty;poll();
- }).catch(function(){fb('Failed')});
+ fetch('/set?f='+$('i0').value+'&d='+$('i1').value+'&dt='+$('i2').value+'&ss='+$('i3').value).then(function(){fb('Saved');poll();}).catch(function(){fb('Err')});
 }
 function fb(m){$('msg').textContent=m;setTimeout(function(){$('msg').textContent='';},2000);}
 fetch('/status').then(r=>r.json()).then(function(d){$('i0').value=d.freq;$('i1').value=d.dutyTarget;$('i2').value=d.dt;$('i3').value=d.ss;}).catch(function(){});
-setInterval(poll,2500);poll();
+setInterval(poll,1000);poll();
 </script>
 </body>
 </html>
