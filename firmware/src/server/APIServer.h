@@ -5,14 +5,12 @@
 #include <memory>
 #include "hal/PWMManager.h"
 #include "hal/ConfigStore.h"
-#include "hal/CTFeedback.h"
-#include "hal/PLLController.h"
 #include "core/AppContext.h"
 #include "provisioning/WiFiProvisioning.h"
 
 class APIServer {
 public:
-    APIServer(PWMManager& pwm, WiFiProvisioning& wifi, ConfigStore& config, AppContext& ctx, CTFeedback& ct, PLLController& pll);
+    APIServer(PWMManager& pwm, WiFiProvisioning& wifi, ConfigStore& config, AppContext& ctx);
     void start(const IPAddress& ip);
     void stop();
     void handle();
@@ -23,7 +21,5 @@ private:
     WiFiProvisioning& _wifi;
     ConfigStore& _config;
     AppContext& _ctx;
-    CTFeedback& _ct;
-    PLLController& _pll;
     std::unique_ptr<WebServer> _server;
 };

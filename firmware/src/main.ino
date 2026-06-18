@@ -2,8 +2,6 @@
 #include "provisioning/WiFiProvisioning.h"
 #include "hal/PWMManager.h"
 #include "hal/ConfigStore.h"
-#include "hal/CTFeedback.h"
-#include "hal/PLLController.h"
 #include "core/AppContext.h"
 #include "core/ParamValidator.h"
 #include "server/APIServer.h"
@@ -12,9 +10,7 @@ WiFiProvisioning wifi;
 PWMManager pwm(PWM_PIN_A, PWM_PIN_B);
 ConfigStore config;
 AppContext ctx;
-CTFeedback ct;
-PLLController pll;
-APIServer api(pwm, wifi, config, ctx, ct, pll);
+APIServer api(pwm, wifi, config, ctx);
 
 void setup() {
     Serial.begin(115200);
@@ -30,8 +26,6 @@ void setup() {
     Serial.printf("[Main] ID: %s\n",
         String((uint32_t)(ESP.getEfuseMac() >> 24), HEX).c_str());
 
-    ct.begin();
-    pll.begin(&ct, &pwm);
     wifi.begin();
 }
 
@@ -49,7 +43,5 @@ void loop() {
     }
 
     api.handle();
-    ct.loop();
-    pll.loop();
     pwm.softStartTick();
 }
