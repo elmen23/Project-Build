@@ -36,7 +36,7 @@ void APIServer::_handleRoot() {
 }
 
 void APIServer::_handleStatus() {
-    JsonDocument doc;
+    StaticJsonDocument<320> doc;
 
     doc["running"] = _pwm.isRunning();
     doc["softStart"] = _pwm.isSoftStarting();
@@ -91,7 +91,7 @@ void APIServer::_handleSet() {
 }
 
 void APIServer::_handleWifiStatus() {
-    JsonDocument doc;
+    StaticJsonDocument<128> doc;
     doc["state"] = _wifi.isProvisioned() ? "connected" : "disconnected";
     doc["ip"] = _wifi.getIP().toString();
     doc["rssi"] = WiFi.RSSI();
@@ -109,12 +109,12 @@ void APIServer::_handleScan() {
     } else if (n == -1) {
         _server->send(200, "application/json", "{\"scanning\":true}");
     } else {
-        JsonDocument doc;
+        StaticJsonDocument<1024> doc;
         JsonArray nets = doc.to<JsonArray>();
         for (int i = 0; i < n; i++) {
             String ssid = WiFi.SSID(i);
             if (ssid.length() == 0) continue;
-            JsonObject net = nets.add<JsonObject>();
+            JsonObject net = nets.createNestedObject();
             net["ssid"] = ssid;
             net["rssi"] = WiFi.RSSI(i);
             net["secure"] = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
