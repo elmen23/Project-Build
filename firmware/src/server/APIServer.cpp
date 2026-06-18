@@ -3,8 +3,18 @@
 #include "core/ParamValidator.h"
 #include <Preferences.h>
 
-APIServer::APIServer(PWMManager& pwm, WiFiProvisioning& wifi, ConfigStore& config, AppContext& ctx)
-    : _pwm(pwm), _wifi(wifi), _config(config), _ctx(ctx) {}
+static const char* _pllStateName(PLLController::State s) {
+    switch (s) {
+        case PLLController::IDLE:     return "IDLE";
+        case PLLController::SWEEPING: return "SWEEP";
+        case PLLController::PLL_LOCK: return "LOCK";
+        case PLLController::PLL_UNLOCK: return "UNLOCK";
+        default: return "?";
+    }
+}
+
+APIServer::APIServer(PWMManager& pwm, WiFiProvisioning& wifi, ConfigStore& config, AppContext& ctx, CTFeedback& ct, PLLController& pll)
+    : _pwm(pwm), _wifi(wifi), _config(config), _ctx(ctx), _ct(ct), _pll(pll) {}
 
 void APIServer::start(const IPAddress& ip) {
     _server.reset(new WebServer(80));
@@ -19,6 +29,10 @@ void APIServer::start(const IPAddress& ip) {
         json += ",\"duty\":";      json += String(_pwm.getDuty(), 1);
         json += ",\"dt\":";        json += String(_ctx.params.deadTimeNs, 0);
         json += ",\"ss\":";        json += String(_ctx.params.softStartMs);
+        json += ",\"tankFreq\":";  json += String(_ct.getTankFrequency(), 0);
+        json += ",\"tankAmp\":";   json += String(_ct.getTankAmplitude(), 3);
+        json += ",\"pllState\":\""; json += _pllStateName(_pll.getState());
+        json += "\",\"pllErr\":";  json += String(_pll.getPhaseError(), 3);
         json += ",\"ip\":\"";      json += _wifi.getIP().toString();
         json += "\",\"rssi\":";    json += String(WiFi.RSSI());
         json += "}";
@@ -26,7 +40,7 @@ void APIServer::start(const IPAddress& ip) {
     });
 
     _server->on("/", HTTP_GET, [this]() {
-        _server->send(200, "text/html", buildDashboard(_pwm, _ctx, _wifi));
+        _server->send(200, "text/html", buildDashboard(_pwm, _ctx, _wifi, _ct, _pll));
     });
 
     _server->on("/start", HTTP_GET, [this]() {

@@ -1,6 +1,16 @@
 #include "Dashboard.h"
 
-String buildDashboard(PWMManager& pwm, AppContext& ctx, WiFiProvisioning& wifi) {
+static const char* _pllStateName(PLLController::State s) {
+    switch (s) {
+        case PLLController::IDLE:     return "IDLE";
+        case PLLController::SWEEPING: return "SWEEP";
+        case PLLController::PLL_LOCK: return "LOCK";
+        case PLLController::PLL_UNLOCK: return "UNLOCK";
+        default: return "?";
+    }
+}
+
+String buildDashboard(PWMManager& pwm, AppContext& ctx, WiFiProvisioning& wifi, CTFeedback& ct, PLLController& pll) {
     String s;
     s.reserve(1024);
     s += F("<!DOCTYPE html><html><head><meta charset=UTF-8>"
@@ -42,8 +52,20 @@ String buildDashboard(PWMManager& pwm, AppContext& ctx, WiFiProvisioning& wifi) 
     s += F("<div class=r><span class=l>RSSI</span><span class=v id=r>");
     s += String(WiFi.RSSI());
     s += F(" dBm</span></div>");
+    s += F("<div class=r><span class=l>Tank Freq</span><span class=v id=tf>");
+    s += String(ct.getTankFrequency(), 0);
+    s += F(" Hz</span></div>");
+    s += F("<div class=r><span class=l>Tank Amp</span><span class=v id=ta>");
+    s += String(ct.getTankAmplitude(), 3);
+    s += F("</span></div>");
+    s += F("<div class=r><span class=l>PLL State</span><span class=v id=ps>");
+    s += _pllStateName(pll.getState());
+    s += F("</span></div>");
+    s += F("<div class=r><span class=l>PLL Err</span><span class=v id=pe>");
+    s += String(pll.getPhaseError(), 3);
+    s += F("</span></div>");
     s += F("</div>"
-           "<div class=s style=text-align:center>"
+            "<div class=s style=text-align:center>"
            "<a href=/start><button class=bs>Start</button></a> "
            "<a href=/stop><button class=bp>Stop</button></a>"
            "</div>"
@@ -68,7 +90,11 @@ String buildDashboard(PWMManager& pwm, AppContext& ctx, WiFiProvisioning& wifi) 
            "document.getElementById('dt').innerText=d.dt+' ns';"
            "document.getElementById('ss').innerText=d.ss+' ms';"
            "document.getElementById('ip').innerText=d.ip;"
-           "document.getElementById('r').innerText=d.rssi+' dBm'})"
+            "document.getElementById('r').innerText=d.rssi+' dBm';"
+            "document.getElementById('tf').innerText=d.tankFreq+' Hz';"
+            "document.getElementById('ta').innerText=d.tankAmp;"
+            "document.getElementById('ps').innerText=d.pllState;"
+            "document.getElementById('pe').innerText=d.pllErr})"
            ".catch(function(){})}"
            "setInterval(p,2000);p()"
            "</script>"
