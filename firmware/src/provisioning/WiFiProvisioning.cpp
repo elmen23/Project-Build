@@ -62,11 +62,11 @@ WiFiProvisioning::WiFiProvisioning()
     : _state(STATE_INIT), _retries(0), _connStart(0), _dispStart(0),
       _testDone(false), _testOk(false) {}
 
-String WiFiProvisioning::_chipId() const {
+String WiFiProvisioning::_chipId() {
     return String((uint32_t)(ESP.getEfuseMac() >> 24), HEX);
 }
 
-String WiFiProvisioning::_apSSID() const {
+String WiFiProvisioning::_apSSID() {
     return String(PROV_AP_SSID_PREFIX) + _chipId();
 }
 

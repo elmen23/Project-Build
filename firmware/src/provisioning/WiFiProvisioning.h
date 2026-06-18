@@ -50,8 +50,8 @@ private:
     bool _testOk;
     std::unique_ptr<DNSServer> _dns;
 
-    String _chipId() const;
-    String _apSSID() const;
+    String _chipId();
+    String _apSSID();
     void _connectSTA(const String& ssid, const String& pass);
     void _startAP();
     void _servePage(const String& msg, bool isErr, const String& scanHtml = "");
