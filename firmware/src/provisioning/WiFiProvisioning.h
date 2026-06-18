@@ -14,10 +14,16 @@
 class WiFiProvisioning {
 public:
     WiFiProvisioning();
-    void begin();
+    void begin(WebServer* server);
     void handle();
     bool isProvisioned() const { return _state == STATE_STA_OK; }
     IPAddress getIP() const { return WiFi.localIP(); }
+
+    void handleRoot();
+    void handleSave();
+    void handleClear();
+    void handleNotFound();
+    String apSSID() const { return _apSSID(); }
 
 private:
     enum State : uint8_t {
@@ -31,6 +37,7 @@ private:
 
     enum class ScanState : uint8_t { IDLE, SCANNING, DONE };
 
+    WebServer* _server = nullptr;
     State _state;
     uint8_t _retries;
     uint32_t _connStart;
@@ -42,16 +49,11 @@ private:
     bool _testDone;
     bool _testOk;
     std::unique_ptr<DNSServer> _dns;
-    std::unique_ptr<WebServer> _server;
 
     String _chipId();
     String _apSSID();
     void _connectSTA(const String& ssid, const String& pass);
     void _startAP();
-    void _onRoot();
-    void _onSave();
-    void _onClear();
-    void _onNotFound();
     void _servePage(const String& msg, bool isErr, const String& scanHtml = "");
     void _serveScanningPage();
     void _serveTestPage();

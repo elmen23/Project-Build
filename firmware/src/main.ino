@@ -1,4 +1,5 @@
 #include <WiFi.h>
+#include <WebServer.h>
 #include "provisioning/WiFiProvisioning.h"
 #include "hal/PWMManager.h"
 #include "hal/ConfigStore.h"
@@ -11,6 +12,7 @@ PWMManager pwm(PWM_PIN_A, PWM_PIN_B);
 ConfigStore config;
 AppContext ctx;
 APIServer api(pwm, wifi, config, ctx);
+WebServer server(80);
 
 void setup() {
     Serial.begin(115200);
@@ -26,7 +28,10 @@ void setup() {
     Serial.printf("[Main] ID: %s\n",
         String((uint32_t)(ESP.getEfuseMac() >> 24), HEX).c_str());
 
-    wifi.begin();
+    wifi.begin(&server);
+    api.begin(&server);
+    server.begin();
+    Serial.println(F("[Main] server started"));
 }
 
 void loop() {
@@ -35,13 +40,7 @@ void loop() {
     }
 
     wifi.handle();
-
-    if (wifi.isProvisioned() && !api.isRunning()) {
-        api.start(wifi.getIP());
-    } else if (!wifi.isProvisioned() && api.isRunning()) {
-        api.stop();
-    }
-
     api.handle();
+    server.handleClient();
     pwm.softStartTick();
 }
