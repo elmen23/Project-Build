@@ -45,7 +45,7 @@ static const char P_TOP[] PROGMEM =
 static const char P_BOTTOM[] PROGMEM = "</div></body></html>";
 
 static const char P_FORM[] PROGMEM =
-    "<div class=left><form method=POST action='/save'><label>SSID</label>"
+    "<div class=left><form method=POST action='/'><label>SSID</label>"
     "<input id=s name=ssid placeholder='Network name' value='%s'>"
     "<label>Password</label>"
     "<input id=p name=pass type=password placeholder='Password'>"
@@ -70,9 +70,7 @@ String WiFiProvisioning::_apSSID() {
     return String(PROV_AP_SSID_PREFIX) + _chipId();
 }
 
-void WiFiProvisioning::begin(WebServer* server) {
-    _server = server;
-
+void WiFiProvisioning::begin() {
     if (_loadCreds()) {
         Serial.print(F("Saved: "));
         Serial.println(_ssid);
@@ -111,6 +109,7 @@ void WiFiProvisioning::handle() {
 
     case STATE_AP:
         _dns->processNextRequest();
+        _server->handleClient();
 
         if (_testDone && _testOk && (millis() - _dispStart) / 1000 >= 5) {
             _state = STATE_RESTART;
@@ -123,6 +122,7 @@ void WiFiProvisioning::handle() {
 
     case STATE_AP_TEST:
         _dns->processNextRequest();
+        _server->handleClient();
 
         {
             wl_status_t s = WiFi.status();
@@ -171,6 +171,7 @@ void WiFiProvisioning::_connectSTA(const String& ssid, const String& pass) {
 void WiFiProvisioning::_startAP() {
     WiFi.persistent(false);
     _dns.reset(new DNSServer());
+    _server.reset(new WebServer(80));
 
     String name = _apSSID();
     Serial.printf("AP: %s\n", name.c_str());
@@ -185,13 +186,17 @@ void WiFiProvisioning::_startAP() {
     _dns->setErrorReplyCode(DNSReplyCode::NoError);
     _dns->start(53, "*", ip);
 
+    _server->on("/", HTTP_GET, [this]() { _onRoot(); });
+    _server->on("/", HTTP_POST, [this]() { _onSave(); });
+    _server->on("/clear", HTTP_POST, [this]() { _onClear(); });
+    _server->onNotFound([this]() { _onNotFound(); });
+    _server->begin();
+
     _connStart = millis();
     _scanState = ScanState::IDLE;
 }
 
-void WiFiProvisioning::handleRoot() {
-    if (!_server) return;
-
+void WiFiProvisioning::_onRoot() {
     if (_state == STATE_AP_TEST) {
         _serveTestPage();
         return;
@@ -232,9 +237,7 @@ void WiFiProvisioning::handleRoot() {
     _scanState = ScanState::IDLE;
 }
 
-void WiFiProvisioning::handleSave() {
-    if (!_server) return;
-
+void WiFiProvisioning::_onSave() {
     _testSSID = _server->arg("ssid").substring(0, 32);
     _testPass = _server->arg("pass").substring(0, 64);
 
@@ -252,9 +255,7 @@ void WiFiProvisioning::handleSave() {
     _serveTestPage();
 }
 
-void WiFiProvisioning::handleClear() {
-    if (!_server) return;
-
+void WiFiProvisioning::_onClear() {
     Preferences prefs;
     prefs.begin("ih", false);
     prefs.clear();
@@ -271,9 +272,7 @@ void WiFiProvisioning::handleClear() {
     _state = STATE_RESTART;
 }
 
-void WiFiProvisioning::handleNotFound() {
-    if (!_server) return;
-
+void WiFiProvisioning::_onNotFound() {
     _server->sendHeader("Location",
         String(F("http://")) + WiFi.softAPIP().toString(), true);
     _server->send(302, "text/plain", "");
