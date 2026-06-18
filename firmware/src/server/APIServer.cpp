@@ -33,8 +33,6 @@ void APIServer::start(const IPAddress& ip) {
         json += ",\"tankAmp\":";   json += String(_ct.getTankAmplitude(), 3);
         json += ",\"pllState\":\""; json += _pllStateName(_pll.getState());
         json += "\",\"pllErr\":";  json += String(_pll.getPhaseError(), 3);
-        json += ",\"ctEnabled\":"; json += _ct.isEnabled() ? "true" : "false";
-        json += ",\"pllEnabled\":"; json += _pll.isEnabled() ? "true" : "false";
         json += ",\"ip\":\"";      json += _wifi.getIP().toString();
         json += "\",\"rssi\":";    json += String(WiFi.RSSI());
         json += "}";
@@ -72,30 +70,6 @@ void APIServer::start(const IPAddress& ip) {
         _config.save(_ctx.params);
         _pwm.setFrequency(_ctx.params.freq);
         _pwm.setDeadTime(_ctx.params.deadTimeNs);
-        _server->sendHeader("Location", "/", true);
-        _server->send(302, "text/plain", "");
-    });
-
-    _server->on("/ct/on", HTTP_GET, [this]() {
-        _ct.setEnabled(true);
-        _server->sendHeader("Location", "/", true);
-        _server->send(302, "text/plain", "");
-    });
-
-    _server->on("/ct/off", HTTP_GET, [this]() {
-        _ct.setEnabled(false);
-        _server->sendHeader("Location", "/", true);
-        _server->send(302, "text/plain", "");
-    });
-
-    _server->on("/pll/on", HTTP_GET, [this]() {
-        _pll.setEnabled(true);
-        _server->sendHeader("Location", "/", true);
-        _server->send(302, "text/plain", "");
-    });
-
-    _server->on("/pll/off", HTTP_GET, [this]() {
-        _pll.setEnabled(false);
         _server->sendHeader("Location", "/", true);
         _server->send(302, "text/plain", "");
     });

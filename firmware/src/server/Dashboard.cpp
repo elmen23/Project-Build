@@ -66,18 +66,11 @@ String buildDashboard(PWMManager& pwm, AppContext& ctx, WiFiProvisioning& wifi, 
     s += F("</span></div>");
     s += F("</div>"
             "<div class=s style=text-align:center>"
-            "<a href=/start><button class=bs>Start</button></a> "
-            "<a href=/stop><button class=bp>Stop</button></a>"
-            "</div>"
-            "<div class=s style=text-align:center>"
-            "<a href=/ct/on><button class=bs id=ctb>CT ON</button></a> "
-            "<a href=/ct/off><button class=bp id=ctbo>CT OFF</button></a>"
-            "<br><br>"
-            "<a href=/pll/on><button class=bs id=pllb>PLL ON</button></a> "
-            "<a href=/pll/off><button class=bp id=pllbo>PLL OFF</button></a>"
-            "</div>"
-            "<div class=s>"
-            "<form action=/set method=GET style=display:flex;flex-direction:column;gap:6px>");
+           "<a href=/start><button class=bs>Start</button></a> "
+           "<a href=/stop><button class=bp>Stop</button></a>"
+           "</div>"
+           "<div class=s>"
+           "<form action=/set method=GET style=display:flex;flex-direction:column;gap:6px>");
     s += F("<div class=fr><lb>Freq (Hz)</lb><input name=f type=number value=");
     s += String(ctx.params.freq, 0);
     s += F("></div>");
@@ -101,13 +94,9 @@ String buildDashboard(PWMManager& pwm, AppContext& ctx, WiFiProvisioning& wifi, 
             "document.getElementById('tf').innerText=d.tankFreq+' Hz';"
             "document.getElementById('ta').innerText=d.tankAmp;"
             "document.getElementById('ps').innerText=d.pllState;"
-            "document.getElementById('pe').innerText=d.pllErr;"
-            "document.getElementById('ctb').style.display=d.ctEnabled?'none':'inline-block';"
-            "document.getElementById('ctbo').style.display=d.ctEnabled?'inline-block':'none';"
-            "document.getElementById('pllb').style.display=d.pllEnabled?'none':'inline-block';"
-            "document.getElementById('pllbo').style.display=d.pllEnabled?'inline-block':'none'})"
-            ".catch(function(){})}"
-            "setInterval(p,2000);p()"
+            "document.getElementById('pe').innerText=d.pllErr})"
+           ".catch(function(){})}"
+           "setInterval(p,2000);p()"
            "</script>"
            "</body></html>");
     return s;

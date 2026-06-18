@@ -28,7 +28,6 @@ void PLLController::reset() {
     _unlockCount = 0;
     _integral = 0;
     _phaseError = 0;
-    _ct->disableZCD();
 }
 
 void PLLController::loop() {
@@ -41,7 +40,6 @@ void PLLController::loop() {
         if (_state != IDLE) {
             _state = IDLE;
             _integral = 0;
-            _ct->disableZCD();
         }
         return;
     }
@@ -53,7 +51,6 @@ void PLLController::loop() {
         _integral = 0;
         _lockCount = 0;
         _unlockCount = 0;
-        _ct->disableZCD();
         return;
     }
 
@@ -62,7 +59,6 @@ void PLLController::loop() {
         _sweepFreq = CoreParams::FREQ_MAX;
         _lockCount = 0;
         _unlockCount = 0;
-        _ct->enableZCD();
         Serial.println(F("[PLL] SWEEP"));
     }
 
