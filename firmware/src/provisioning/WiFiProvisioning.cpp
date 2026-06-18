@@ -197,6 +197,8 @@ void WiFiProvisioning::_startAP() {
 }
 
 void WiFiProvisioning::_onRoot() {
+    _touchAP();
+
     if (_state == STATE_AP_TEST) {
         _serveTestPage();
         return;
@@ -238,6 +240,7 @@ void WiFiProvisioning::_onRoot() {
 }
 
 void WiFiProvisioning::_onSave() {
+    _touchAP();
     _testSSID = _server->arg("ssid").substring(0, 32);
     _testPass = _server->arg("pass").substring(0, 64);
 
@@ -256,10 +259,18 @@ void WiFiProvisioning::_onSave() {
 }
 
 void WiFiProvisioning::_onClear() {
+    _touchAP();
     Preferences prefs;
-    prefs.begin("ih", false);
+    prefs.begin("ih-wifi", false);
     prefs.clear();
     prefs.end();
+
+    Preferences legacy;
+    legacy.begin("ih", false);
+    legacy.remove("ssid");
+    legacy.remove("pass");
+    legacy.end();
+
     _ssid = "";
     _pass = "";
     Serial.println(F("Cleared"));
@@ -273,9 +284,16 @@ void WiFiProvisioning::_onClear() {
 }
 
 void WiFiProvisioning::_onNotFound() {
+    _touchAP();
     _server->sendHeader("Location",
         String(F("http://")) + WiFi.softAPIP().toString(), true);
     _server->send(302, "text/plain", "");
+}
+
+void WiFiProvisioning::_touchAP() {
+    if (_state == STATE_AP) {
+        _connStart = millis();
+    }
 }
 
 void WiFiProvisioning::_servePage(const String& msg, bool isErr, const String& scanHtml) {
@@ -393,16 +411,28 @@ void WiFiProvisioning::_buildScanCache(int n) {
 
 bool WiFiProvisioning::_loadCreds() {
     Preferences prefs;
-    prefs.begin("ih", true);
+    prefs.begin("ih-wifi", true);
     _ssid = prefs.getString("ssid", "");
     _pass = prefs.getString("pass", "");
     prefs.end();
+
+    if (_ssid.length() == 0) {
+        Preferences legacy;
+        legacy.begin("ih", true);
+        _ssid = legacy.getString("ssid", "");
+        _pass = legacy.getString("pass", "");
+        legacy.end();
+        if (_ssid.length() > 0) {
+            _saveCreds();
+        }
+    }
+
     return _ssid.length() > 0;
 }
 
 void WiFiProvisioning::_saveCreds() {
     Preferences prefs;
-    prefs.begin("ih", false);
+    prefs.begin("ih-wifi", false);
     prefs.putString("ssid", _ssid);
     prefs.putString("pass", _pass);
     prefs.end();

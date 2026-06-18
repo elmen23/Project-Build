@@ -13,6 +13,7 @@ String buildDashboard(PWMManager& pwm, AppContext& ctx, WiFiProvisioning& wifi) 
            ".r{display:flex;justify-content:space-between;padding:4px 0}"
            ".l{color:#888}.v{color:#0f0}"
            "button{padding:8px 24px;font-size:16px;cursor:pointer;border:0;border-radius:4px}"
+           "form{display:inline}"
            ".bs{background:#0a0;color:#fff}"
            ".bp{background:#a00;color:#fff}"
            ".ba{background:#00a;color:#fff;padding:6px 16px;border:0;border-radius:4px}"
@@ -44,11 +45,11 @@ String buildDashboard(PWMManager& pwm, AppContext& ctx, WiFiProvisioning& wifi) 
     s += F(" dBm</span></div>");
     s += F("</div>"
            "<div class=s style=text-align:center>"
-           "<a href=/start><button class=bs>Start</button></a> "
-           "<a href=/stop><button class=bp>Stop</button></a>"
+           "<form action=/start method=POST><button class=bs type=submit>Start</button></form> "
+           "<form action=/stop method=POST><button class=bp type=submit>Stop</button></form>"
            "</div>"
            "<div class=s>"
-           "<form action=/set method=GET style=display:flex;flex-direction:column;gap:6px>");
+           "<form action=/set method=POST style=display:flex;flex-direction:column;gap:6px>");
     s += F("<div class=fr><lb>Freq (Hz)</lb><input name=f type=number value=");
     s += String(ctx.params.freq, 0);
     s += F("></div>");

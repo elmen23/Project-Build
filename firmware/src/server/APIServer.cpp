@@ -1,6 +1,7 @@
 #include "APIServer.h"
 #include "Dashboard.h"
 #include "core/ParamValidator.h"
+#include "util/StringUtils.h"
 #include <Preferences.h>
 
 APIServer::APIServer(PWMManager& pwm, WiFiProvisioning& wifi, ConfigStore& config, AppContext& ctx)
@@ -29,21 +30,21 @@ void APIServer::start(const IPAddress& ip) {
         _server->send(200, "text/html", buildDashboard(_pwm, _ctx, _wifi));
     });
 
-    _server->on("/start", HTTP_GET, [this]() {
+    _server->on("/start", HTTP_POST, [this]() {
         if (!_pwm.isRunning())
             _pwm.start(_ctx.params.softStartMs);
         _server->sendHeader("Location", "/", true);
         _server->send(302, "text/plain", "");
     });
 
-    _server->on("/stop", HTTP_GET, [this]() {
+    _server->on("/stop", HTTP_POST, [this]() {
         if (_pwm.isRunning())
             _pwm.stop();
         _server->sendHeader("Location", "/", true);
         _server->send(302, "text/plain", "");
     });
 
-    _server->on("/set", HTTP_GET, [this]() {
+    _server->on("/set", HTTP_POST, [this]() {
         CoreParams p = _ctx.params;
         if (_server->hasArg("f"))
             p.freq = _server->arg("f").toFloat();
@@ -80,12 +81,14 @@ void APIServer::start(const IPAddress& ip) {
             _server->send(200, "application/json", "{\"scanning\":true}");
         } else {
             String json = "[";
+            bool first = true;
             for (int i = 0; i < n; i++) {
-                if (i > 0) json += ",";
                 String ssid = WiFi.SSID(i);
                 if (ssid.length() == 0) continue;
+                if (!first) json += ",";
+                first = false;
                 json += "{\"ssid\":\"";
-                json += ssid;
+                json += jsonEscape(ssid);
                 json += "\",\"rssi\":";
                 json += String(WiFi.RSSI(i));
                 json += ",\"secure\":";
@@ -106,7 +109,7 @@ void APIServer::start(const IPAddress& ip) {
             return;
         }
         Preferences p;
-        p.begin("ih", false);
+        p.begin("ih-wifi", false);
         p.putString("ssid", ssid);
         p.putString("pass", pass);
         p.end();
@@ -117,9 +120,15 @@ void APIServer::start(const IPAddress& ip) {
     _server->on("/reset-wifi", HTTP_POST, [this]() {
         {
             Preferences p;
-            p.begin("ih", false);
+            p.begin("ih-wifi", false);
             p.clear();
             p.end();
+
+            Preferences legacy;
+            legacy.begin("ih", false);
+            legacy.remove("ssid");
+            legacy.remove("pass");
+            legacy.end();
         }
         _server->send(200, "application/json", "{\"ok\":true}");
         _ctx.requestRestart();

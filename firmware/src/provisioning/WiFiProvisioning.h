@@ -52,6 +52,7 @@ private:
     void _onSave();
     void _onClear();
     void _onNotFound();
+    void _touchAP();
     void _servePage(const String& msg, bool isErr, const String& scanHtml = "");
     void _serveScanningPage();
     void _serveTestPage();
