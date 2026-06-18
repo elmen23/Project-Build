@@ -19,12 +19,21 @@ public:
     uint32_t getEdgeCount()      const { return _edgeCount; }
     uint32_t getLastEdgeTimeUs() const { return _lastEdgeTimeUs; }
 
+    void enableZCD();
+    void disableZCD();
+
+    void setEnabled(bool v);
+    bool isEnabled() const { return _enabled; }
+
     static constexpr gpio_num_t ADC_GPIO = GPIO_NUM_34;
     static constexpr gpio_num_t ZCD_GPIO = GPIO_NUM_22;
 
 private:
+    bool      _enabled = false;
+
     volatile uint32_t _lastEdgeTimeUs = 0;
     volatile uint32_t _prevEdgeTimeUs = 0;
+    volatile uint32_t _lastPeriod = 0;
     volatile float    _tankFreq = 0.0f;
     volatile bool     _hasSignal = false;
     volatile uint32_t _edgeCount = 0;

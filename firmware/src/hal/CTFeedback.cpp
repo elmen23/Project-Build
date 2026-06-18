@@ -12,23 +12,38 @@ void CTFeedback::begin() {
     io.pin_bit_mask = 1ULL << ZCD_GPIO;
     io.pull_down_en = GPIO_PULLDOWN_DISABLE;
     io.pull_up_en = GPIO_PULLUP_DISABLE;
-    if (gpio_config(&io) != ESP_OK) {
-        Serial.println(F("[CT] gpio_config fail"));
-        return;
-    }
+    gpio_config(&io);
 
     esp_err_t err = gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         Serial.printf("[CT] ISR service err %d\n", (int)err);
-        return;
     }
 
-    if (gpio_isr_handler_add(ZCD_GPIO, _zcdIsr, this) != ESP_OK) {
-        Serial.println(F("[CT] ISR add fail"));
-        return;
-    }
+    Serial.printf("[CT] ADC on %d, ZCD on %d (disabled)\n",
+        (int)ADC_GPIO, (int)ZCD_GPIO);
+}
 
-    Serial.printf("[CT] ADC on %d, ZCD on %d\n", (int)ADC_GPIO, (int)ZCD_GPIO);
+void CTFeedback::setEnabled(bool v) {
+    _enabled = v;
+    if (!v) disableZCD();
+}
+
+void CTFeedback::enableZCD() {
+    if (!_enabled) return;
+    gpio_isr_handler_add(ZCD_GPIO, _zcdIsr, this);
+    Serial.println(F("[CT] ZCD enabled"));
+}
+
+void CTFeedback::disableZCD() {
+    gpio_isr_handler_remove(ZCD_GPIO);
+    _lastEdgeTimeUs = 0;
+    _prevEdgeTimeUs = 0;
+    _lastPeriod = 0;
+    _edgeCount = 0;
+    _processedEdges = 0;
+    _lastSignalMs = 0;
+    _hasSignal = false;
+    Serial.println(F("[CT] ZCD disabled"));
 }
 
 void IRAM_ATTR CTFeedback::_zcdIsr(void* arg) {
@@ -38,18 +53,20 @@ void IRAM_ATTR CTFeedback::_zcdIsr(void* arg) {
     self->_lastEdgeTimeUs = now;
     self->_edgeCount++;
     self->_hasSignal = true;
-    __sync_synchronize();
-
     if (self->_prevEdgeTimeUs != 0) {
-        uint32_t period = now - self->_prevEdgeTimeUs;
-        if (period > 0)
-            self->_tankFreq = 1000000.0f / (float)period;
+        self->_lastPeriod = now - self->_prevEdgeTimeUs;
     }
 }
 
 void CTFeedback::loop() {
+    if (!_enabled) return;
+
     __sync_synchronize();
     uint32_t now = millis();
+
+    uint32_t period = _lastPeriod;
+    if (period > 0 && period < 100000)
+        _tankFreq = 1000000.0f / (float)period;
 
     uint32_t edges = _edgeCount;
     if (edges != _processedEdges) {
@@ -57,7 +74,7 @@ void CTFeedback::loop() {
         _lastSignalMs = now;
     }
 
-    if (_lastSignalMs == 0 || (uint32_t)(now - _lastSignalMs) > 500) {
+    if ((uint32_t)(now - _lastSignalMs) > 500) {
         _hasSignal = false;
         if (_edgeCount != _processedEdges) _hasSignal = true;
     }
